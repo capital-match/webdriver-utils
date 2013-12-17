@@ -19,7 +19,7 @@ description:       For end to end testing of web applications from Haskell, the
                    fills the gap by reusing some of the protractor code to allow end to end tests of Angular
                    applications to be written in Haskell.
 
-extra-source-files: js/*.js
+extra-source-files: js/*.js, README.md
 
 source-repository head
     type: mercurial
