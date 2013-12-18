@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+    <head>
+        <script src="//ajax.googleapis.com/ajax/libs/angularjs/1.2.5/angular.min.js"></script>
+        <script src="ng.js"></script>
+    </head>
+    <body ng-app="test">
+        <div ng-controller="TestCtrl">
+            <h1>Hello {{a}}!</h1>
+            <h2>The name is {{name}}</h2>
+            <input ng-model="name"></input>
+            <input ng-model="xxx"></input>
+            <textarea ng-model="name"></textarea>
+            <textarea ng-model="yyy"></textarea>
+            <select ng-model="name">
+                    <option value="Hello">Hello</option>
+                    <option value="Goodbye">Goodbye</option>
+            </select>
+            <select ng-model="zzz">
+                    <option value="Foo">Foo</option>
+                    <option value="Bar">Bar</option>
+            </select>
+            <ul>
+                <li ng-repeat="dog in dogs">
+                    <span>{{dog.name}}</span>
+                    <span>{{dog.breed}}</span>
+                </li>
+            </ul>
+            <div id="one">
+                <span id="span-one">{{cost}}</span>
+            </div>
+            <div id="two">
+                <span id="span-two">{{cost}}</span>
+            </div>
+        </div>
+    </body>
+</html>

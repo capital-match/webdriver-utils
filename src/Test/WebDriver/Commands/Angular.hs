@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings, DeriveDataTypeable #-}
 -- | This module exposes WD actions that can be used to interact with a page
 -- which uses <http://angularjs.org/ AngularJs>.  This provides similar functionality
 -- as <https://github.com/angular/protractor protractor> and in fact we share some code
@@ -9,19 +9,27 @@ module Test.WebDriver.Commands.Angular
       waitForAngular
 
     -- * Searching for elements
+    , NgException(..)
     , NgSelector(..)
     , findNg
+    , findNgs
     , findNgFrom
+    , findNgsFrom
     , NgRepeater(..)
     , findRepeater
+    , findRepeaters
     , findRepeaterFrom
+    , findRepeatersFrom
 
     -- * Misc
     , ngEvaluate
     , getLocationAbsUrl
     ) where
 
+import Control.Monad.IO.Class (liftIO, MonadIO)
+import Control.Exception (throwIO, Exception)
 import Control.Applicative ((<$>))
+import Data.Typeable (Typeable)
 import Test.WebDriver.Classes
 import Test.WebDriver.Commands
 import Test.WebDriver.JSON (fromJSON')
@@ -47,8 +55,9 @@ execCS script arg = executeJS arg body
 execElems :: WebDriver wd => T.Text -> [JSArg] -> wd [Element]
 execElems script arg = do
     x <- execCS script arg
-    case x of
-        A.Null -> return []
+    case (x, A.fromJSON x) of
+        (A.Null, _) -> return []
+        (A.Array _, A.Success [A.Null]) -> return []
         _ -> fromJSON' x
 
 asyncCS :: (WebDriver wd, A.FromJSON a) => T.Text -> [JSArg] -> wd (Maybe a)
@@ -65,6 +74,17 @@ waitForAngular sel = do
     a <- asyncCS "waitForAngular" [JSArg sel] :: WebDriver wd => wd (Maybe ())
     return $ maybe False (const True) a
 
+-- | Errors locating elements will throw exceptions of this type
+data NgException = NgException String
+  deriving (Show, Eq, Typeable)
+instance Exception NgException
+
+checkOne :: (Show s, MonadIO wd, WebDriver wd) => s -> [Element] -> wd Element
+checkOne _ [e] = return e
+checkOne sel es = liftIO $ throwIO err
+    where
+        err = NgException $ "Selector " ++ show sel ++ " returned " ++ show es
+
 data NgSelector = 
     ByBinding T.Text -- ^ Argument is the binding, e.g. {{dog.name}}
   | ByModel T.Text   -- ^ Argument is the model name.  This is just a combination of 'ByInput', 'ByTextarea', and 'BySelect'
@@ -73,6 +93,7 @@ data NgSelector =
   | BySelect T.Text   -- ^ Select element with matching model name, e.g. @\<select ng-model=\"name\" ... \>@
   | BySelectedOption T.Text -- ^ Selected options with a select element matching the modelname.  That is,
                           --   The @\<option:checked\>@ elements within a @\<select ng-model=\"name\" ... \>@.
+  deriving (Show,Eq)
 
 data NgRepeater =
     ByRows T.Text    -- ^ All the rows matching the repeater (e.g. 'dog in dogs')
@@ -80,14 +101,25 @@ data NgRepeater =
   | ByColumn T.Text T.Text -- ^ A single column matching the text of the repeater (e.g. 'dog in dogs') and the
                          -- column binding (e.g '{{dog.name}}').
   | ByRowAndCol T.Text Int T.Text -- ^ A single row and column, given (repeater, row index, column binding).
+  deriving (Show,Eq)
+
+-- | Find a single element from the document matching the given Angular selector.  If zero or more
+-- than one element is returned, an exception of type 'NgException' is thrown.
+findNg :: (MonadIO wd, WebDriver wd) => NgSelector -> wd Element
+findNg s = checkOne s =<< findNg' (JSArg A.Null) s
 
 -- | Find elements from the document matching the given Angular selector.
-findNg :: WebDriver wd => NgSelector -> wd [Element]
-findNg = findNg' $ JSArg A.Null
+findNgs :: WebDriver wd => NgSelector -> wd [Element]
+findNgs = findNg' $ JSArg A.Null
+
+-- | Find a single element from within the given element which match the given Angular selector. If
+-- zero or more than one element is returned, an exception of type 'NgException' is thrown.
+findNgFrom :: (MonadIO wd, WebDriver wd) => Element -> NgSelector -> wd Element
+findNgFrom e s = checkOne s =<< findNg' (JSArg e) s
 
 -- | Find elements from within the given element which match the given Angular selector.
-findNgFrom :: WebDriver wd => Element -> NgSelector -> wd [Element]
-findNgFrom e = findNg' $ JSArg e
+findNgsFrom :: WebDriver wd => Element -> NgSelector -> wd [Element]
+findNgsFrom e = findNg' $ JSArg e
 
 findNg' :: WebDriver wd => JSArg -> NgSelector -> wd [Element]
 findNg' e (ByBinding name) = execElems "findBindings" [e, JSArg name]
@@ -100,13 +132,23 @@ findNg' e (ByModel name) = concat <$> sequence [ findNg' e $ ByInput name
                                                , findNg' e $ BySelect name
                                                ]
 
+-- | Find an element from the document which match the Angular repeater.  If zero or more than one
+-- element are returned, an exception of type 'NgException' is thrown.
+findRepeater :: (MonadIO wd, WebDriver wd) => NgRepeater -> wd Element
+findRepeater r = checkOne r =<< findRepeater' (JSArg A.Null) r
+
 -- | Find elements from the document which match the Angular repeater.
-findRepeater :: WebDriver wd => NgRepeater -> wd [Element]
-findRepeater = findRepeater' $ JSArg A.Null
+findRepeaters :: WebDriver wd => NgRepeater -> wd [Element]
+findRepeaters = findRepeater' $ JSArg A.Null
+
+-- | Find an element from the given element which match the Angular repeater.  If zero or more than
+-- one are returned, an exception of type 'NgException' is thrown.
+findRepeaterFrom :: (MonadIO wd, WebDriver wd) => Element -> NgRepeater -> wd Element
+findRepeaterFrom e r = checkOne r =<< findRepeater' (JSArg e) r
 
 -- | Find elements from the given element which match the Angular repeater.
-findRepeaterFrom :: WebDriver wd => Element -> NgRepeater -> wd [Element]
-findRepeaterFrom e = findRepeater' $ JSArg e
+findRepeatersFrom :: WebDriver wd => Element -> NgRepeater -> wd [Element]
+findRepeatersFrom e = findRepeater' $ JSArg e
 
 findRepeater' :: WebDriver wd => JSArg -> NgRepeater -> wd [Element]
 findRepeater' e (ByRows rep) = execElems "findAllRepeaterRows" [e, JSArg rep]
