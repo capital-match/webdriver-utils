@@ -27,6 +27,7 @@ module Test.WebDriver.Commands.Angular (
 
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Exception (throwIO, Exception)
+import Data.Monoid ((<>))
 import Data.Typeable (Typeable)
 import Test.WebDriver.Classes
 import Test.WebDriver.Commands
@@ -58,19 +59,29 @@ execElems script arg = do
         (A.Array _, A.Success [A.Null]) -> return []
         _ -> fromJSON' x
 
+{-
 asyncCS :: (WebDriver wd, A.FromJSON a) => T.Text -> [JSArg] -> wd (Maybe a)
 asyncCS script arg = asyncJS arg body
     where
         body = maybe (error $ "Unable to find " ++ T.unpack script) id $ M.lookup script cs
+-}
 
 -- | Wait until Angular has finished rendering before continuing.  @False@ indicates the timeout
 -- was hit (see 'setScriptTimeout') and we stopped waiting and @True@ means that angular has
 -- finished rendering.
-waitForAngular :: WebDriver wd => T.Text -- ^ CSS selector to element which has ng-app
-                               -> wd Bool
+waitForAngular :: (MonadIO wd, WebDriver wd) 
+               => T.Text -- ^ CSS selector to element which has ng-app
+               -> wd Bool
 waitForAngular sel = do
-    a <- asyncCS "waitForAngular" [JSArg sel] :: WebDriver wd => wd (Maybe ())
-    return $ maybe False (const True) a
+    --a <- asyncCS "waitForAngular" [JSArg sel] :: WebDriver wd => wd (Maybe 
+    
+    let body = maybe (error $ "Unable to find waitForAngular") id $ M.lookup "waitForAngular" cs
+        body' = "var oldDone = arguments[1]; arguments[1] = function(e) { oldDone(e || true); };" <> body
+    a <- asyncJS [JSArg sel] body'
+    case a of
+        Nothing -> return False
+        Just (A.Bool True) -> return True
+        Just _ -> liftIO $ throwIO $ NgException $ "Error waiting for angular: " ++ show a
 
 -- | Exceptions of this type will be thrown when an element is unable to be located.
 data NgException = NgException String

@@ -68,7 +68,7 @@ specs :: Spec
 specs = describe "Angular webdriver commands" $ do
     it "finds elements by binding" $ WithSession Firefox $ do
         openPage "http://localhost:3456/index.html"
-        _ <- waitForAngular "body" --`shouldReturn` True
+        waitForAngular "body" `shouldReturn` True
 
         binding <- findNg $ ByBinding "{{a}}"
         binding `shouldBeTag` "h1"
