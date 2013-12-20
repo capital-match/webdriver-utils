@@ -4,7 +4,6 @@ module Specs where
 import Test.WebDriver.Commands
 import Test.WebDriver.Commands.Angular
 
-import Data.Monoid
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception.Lifted (try, Exception)
 import Test.Hspec.Core (Example(..), Result(..))
@@ -65,12 +64,6 @@ shouldThrow w expected = do
         Left err -> err `shouldBe` expected
         Right _ -> liftIO $ assertFailure $ "did not get expected exception " ++ show expected
 
-assertName :: T.Text -> W.WD ()
-assertName n = do
-    e <- findNg $ ByBinding "{{name}}"
-    e `shouldBeTag` "h2"
-    e `shouldHaveText` ("The name is " <> n)
-
 specs :: Spec
 specs = describe "Angular webdriver commands" $ do
     it "finds elements by binding" $ WithSession Firefox $ do
@@ -81,65 +74,47 @@ specs = describe "Angular webdriver commands" $ do
         binding `shouldBeTag` "h1"
         binding `shouldHaveText` "Hello A!"
 
+    it "does not find missing model elements" $ WithSession Firefox $ do
+        findNgs (ByModel "qqq") `shouldReturn` []
+        findNg (ByModel "qqq") `shouldThrow` NgException "Selector ByModel \"qqq\" returned []"
+
     it "finds input elements" $ WithSession Firefox $ do
-        i <- findNg $ ByInput "name"
+        i <- findNg $ ByModel "xxx"
         i `shouldBeTag` "input"
         sendKeys "John" i
-        assertName "John"
 
-        i2 <- findNg $ ByInput "xxx"
-        i2 `shouldBeTag` "input"
-
-        findNgs (ByInput "yyy") `shouldReturn` []
-        findNg (ByInput "yyy") `shouldThrow` NgException "Selector ByInput \"yyy\" returned []"
+        xHead <- findNg $ ByBinding "{{xxx}}"
+        xHead `shouldBeTag` "h1"
+        xHead `shouldHaveText` "X John"
 
     it "finds textarea elements" $ WithSession Firefox $ do
-        openPage "http://localhost:3456/index.html"
-        _ <- waitForAngular "body" --`shouldReturn` True
-
-        t <- findNg $ ByTextarea "name"
+        t <- findNg $ ByModel "yyy"
         t `shouldBeTag` "textarea"
         sendKeys "Mark" t
-        assertName "Mark"
 
-        t2 <- findNg $ ByTextarea "yyy"
-        t2 `shouldBeTag` "textarea"
-        sendKeys "Bob" t2
-        assertName "Mark"
-
-        findNgs (ByTextarea "xxx") `shouldReturn` []
-        findNg (ByTextarea "xxx") `shouldThrow` NgException "Selector ByTextarea \"xxx\" returned []"
+        yHead <- findNg $ ByBinding "{{yyy}}"
+        yHead `shouldBeTag` "h2"
+        yHead `shouldHaveText` "Y Mark"
 
     it "finds select elements" $ WithSession Firefox $ do
-        s <- findNg $ BySelect "name"
+        s <- findNg $ ByModel "zzz"
         s `shouldBeTag` "select"
-        opt <- findElemFrom s $ ByCSS "option[value=\"Goodbye\"]"
+        opt <- findElemFrom s $ ByCSS "option[value=\"Bar\"]"
         click opt
-        assertName "Goodbye"
 
-        opt' <- findNg $ BySelectedOption "name"
-        opt' `shouldBeTag` "option"
-        opt' `shouldHaveText` "Goodbye"
+        zHead <- findNg $ ByBinding "{{zzz}}"
+        zHead `shouldBeTag` "h3"
+        zHead `shouldHaveText` "Z Bar"
 
-        findNgs (BySelect "xxx") `shouldReturn` []
+    it "finds selected option inside select opt" $ WithSession Firefox $ do
+        opt <- findNg $ BySelectedOption "zzz"
+        opt `shouldBeTag` "option"
+        opt `shouldHaveText` "Bar"
 
     it "finds model elements of different types" $ WithSession Firefox $ do
         [i, t, s] <- findNgs $ ByModel "name"
         i `shouldBeTag` "input"
         t `shouldBeTag` "textarea"
-        s `shouldBeTag` "select"
-        i `shouldHaveAttr` ("value", "Goodbye")
-        t `shouldHaveAttr` ("value", "Goodbye")
-
-    it "finds a single module element" $ WithSession Firefox $ do
-        i <- findNg $ ByModel "xxx"
-        i `shouldBeTag` "input"
-        i `shouldHaveText` ""
-
-        t <- findNg $ ByModel "yyy"
-        t `shouldBeTag` "textarea"
-
-        s <- findNg $ ByModel "zzz"
         s `shouldBeTag` "select"
 
     it "finds all repeater rows" $ WithSession Firefox $ do

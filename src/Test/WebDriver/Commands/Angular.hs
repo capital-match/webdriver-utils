@@ -86,12 +86,10 @@ checkOne sel es = liftIO $ throwIO err
 
 data NgSelector = 
     ByBinding T.Text -- ^ Argument is the binding, e.g. {{dog.name}}
-  | ByModel T.Text   -- ^ Argument is the model name.  This is just a combination of 'ByInput', 'ByTextarea', and 'BySelect'
-  | ByInput T.Text   -- ^ Input element with matching model name, e.g. @\<input ng-model=\"name\" ...\>@.
-  | ByTextarea T.Text -- ^ Textarea element with matching model name, e.g. @\<textarea ng-model=\"name\" ... \>@
-  | BySelect T.Text   -- ^ Select element with matching model name, e.g. @\<select ng-model=\"name\" ... \>@
-  | BySelectedOption T.Text -- ^ Selected options with a select element matching the modelname.  That is,
-                          --   The @\<option:checked\>@ elements within a @\<select ng-model=\"name\" ... \>@.
+  | ByModel T.Text   -- ^ Argument is the model name.  Searches for elements with the @ng-model=\"name\"@ attribute.
+  | BySelectedOption T.Text -- ^ Argument is a model name. Searches for selected options within a select element
+                            --   matching the modelname.  That is, the @\<option:checked\>@ elements within a 
+                            --   @\<select ng-model=\"name\" ... \>@.
   deriving (Show,Eq)
 
 data NgRepeater =
@@ -122,14 +120,8 @@ findNgsFrom e = findNg' $ JSArg e
 
 findNg' :: WebDriver wd => JSArg -> NgSelector -> wd [Element]
 findNg' e (ByBinding name) = execElems "findBindings" [e, JSArg name]
-findNg' e (ByInput name) = execElems "findInputs" [e, JSArg name]
-findNg' e (ByTextarea name) = execElems "findTextareas" [e, JSArg name]
-findNg' e (BySelect name) = execElems "findSelects" [e, JSArg name]
+findNg' e (ByModel name) = execElems "findByModel" [e, JSArg name]
 findNg' e (BySelectedOption name) = execElems "findSelectedOptions" [e, JSArg name]
-findNg' e (ByModel name) = concat <$> sequence [ findNg' e $ ByInput name
-                                               , findNg' e $ ByTextarea name
-                                               , findNg' e $ BySelect name
-                                               ]
 
 -- | Find an element from the document which matches the Angular repeater.  If zero or more than one
 -- element are returned, an exception of type 'NgException' is thrown.
