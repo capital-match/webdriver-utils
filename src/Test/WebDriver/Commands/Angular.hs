@@ -27,7 +27,6 @@ module Test.WebDriver.Commands.Angular (
 
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Exception (throwIO, Exception)
-import Control.Applicative ((<$>))
 import Data.Typeable (Typeable)
 import Test.WebDriver.Classes
 import Test.WebDriver.Commands
