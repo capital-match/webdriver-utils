@@ -1,68 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Specs where
 
+import Test.Hspec.Webdriver
 import Test.WebDriver.Commands
 import Test.WebDriver.Commands.Angular
-
-import Control.Monad.IO.Class (liftIO)
-import Control.Exception.Lifted (try, Exception)
-import Test.Hspec.Core (Example(..), Result(..))
-import Test.HUnit (assertEqual, assertFailure)
-import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow)
-import qualified Test.Hspec as H
 import qualified Test.WebDriver as W
-import qualified Test.WebDriver.Classes as W
-import qualified Data.Text as T
 
-data MySession = Firefox
-            -- | Chrome
+data TestSessions = Firefox
 
-sessionCaps :: MySession -> W.Capabilities
-sessionCaps Firefox = W.defaultCaps
+instance WdSessions TestSessions where
+    sessMatchesCaps Firefox (W.Capabilities { W.browser = W.Firefox _ _ _ }) = return True
+    sessMatchesCaps _ _ = return False
 
-matchingCaps :: MySession -> W.Capabilities -> Bool
-matchingCaps Firefox (W.Capabilities { W.browser = W.Firefox _ _ _ }) = True
-matchingCaps _ _ = False
-
-data WithSession = WithSession MySession (W.WD ())
-instance Example WithSession where
-    evaluateExample (WithSession stype w) _ action = action (W.runWD session w') >> return Success
-        where
-            session = W.defaultSession
-            w' = do ss <- sessions
-                    case filter (\(_, caps) -> matchingCaps stype caps) ss of
-                        ((s, _):_) -> W.putSession $ session { W.wdSessId = Just s }
-                        _ -> do s <- createSession $ sessionCaps stype
-                                W.putSession s
-                    w
-                        
-shouldBe :: (Show a, Eq a) => a -> a -> W.WD ()
-x `shouldBe` y = liftIO $ x `H.shouldBe` y
-
-shouldBeTag :: Element -> T.Text -> W.WD ()
-e `shouldBeTag` name = do
-    t <- tagName e
-    liftIO $ assertEqual ("tag of " ++ show e) name t
-
-shouldHaveText :: Element -> T.Text -> W.WD ()
-e `shouldHaveText` txt = do
-    t <- getText e
-    liftIO $ assertEqual ("text of " ++ show e) txt t
-
-shouldHaveAttr :: Element -> (T.Text, T.Text) -> W.WD ()
-e `shouldHaveAttr` (a, txt) = do
-    t <- attr e a
-    liftIO $ assertEqual ("attribute " ++ T.unpack a ++ " of " ++ show e) (Just txt) t
-
-shouldReturn :: (Show a, Eq a) => W.WD a -> a -> W.WD ()
-action `shouldReturn` expected = action >>= (\a -> liftIO $ a `H.shouldBe` expected)
-
-shouldThrow :: (Show e, Eq e, Exception e) => W.WD a -> e -> W.WD ()
-shouldThrow w expected = do
-    r <- try w
-    case r of
-        Left err -> err `shouldBe` expected
-        Right _ -> liftIO $ assertFailure $ "did not get expected exception " ++ show expected
+    newCaps Firefox = return W.defaultCaps -- defaultCaps uses Firefox.
 
 specs :: Spec
 specs = describe "Angular webdriver commands" $ do
@@ -159,7 +109,7 @@ specs = describe "Angular webdriver commands" $ do
 
     it "evaluates an angular expression" $ WithSession Firefox $ do
         e <- findNg $ ByBinding "{{a}}"
-        ngEvaluate e "cost | number:2" `shouldReturn` ("12.60" :: T.Text)
+        ngEvaluate e "cost | number:2" `shouldReturn` ("12.60" :: String)
 
     it "loads the location url" $ WithSession Firefox $ do
         getLocationAbsUrl "body" `shouldReturn` "http://localhost:3456/index.html"
