@@ -23,8 +23,7 @@ source-repository head
 
 library
     hs-source-dirs:  .
-    exposed-modules: Test.Hspec.WebDriver
-    other-modules: Test.Hspec.WebDriver.Internal
+    exposed-modules:  Test.Hspec.WebDriver, Test.Hspec.WebDriver.Internal
     ghc-options:   -Wall -O2
 
     build-depends: base                 >= 4          && < 5

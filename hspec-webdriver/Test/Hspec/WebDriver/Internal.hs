@@ -1,9 +1,12 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Test.Hspec.WebDriver.Internal(
     TestCapabilities(..)
-  , withCaps
+  , WdExample(..)
   , createSessionManager
   , createSessionManager'
+  , withCaps
+  , takeSession
+  , putSessionId
 ) where
 
 import Control.Concurrent.STM
@@ -17,6 +20,7 @@ import Data.Word (Word16)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.WebDriver
 import Test.WebDriver.Classes
+import Test.Hspec.Core (Params, Result)
 import qualified Data.HashMap.Lazy as M
 
 -- | Provides information about the browser capabilities you are using for testing.  You must make
@@ -28,10 +32,7 @@ import qualified Data.HashMap.Lazy as M
 -- >   deriving (Show, Eq, Bounded, Enum, Typeable)
 --
 -- (The 'Typeable' instance is needed for an @Eq@ instance on an existentially quantified type
--- over @TestCapabilities@.) You should also define
---
--- >withAll :: [TestCaps]
--- >withAll = [minBound..maxBound]
+-- over @TestCapabilities@.)
 class (Eq c, Enum c, Typeable c) => TestCapabilities c where
 
     -- | Check if the 'Capabilities' match your enumeration.  Note that these capabilities
@@ -44,6 +45,10 @@ class (Eq c, Enum c, Typeable c) => TestCapabilities c where
 
     -- | The capabilities to pass to 'createSession' when no existing session is found.
     newCaps :: c -> WD Capabilities
+
+-- | A behavioral example for webdriver sessions.
+class WdExample a where
+    evaluateWdExamples :: a -> [(String, Params -> (IO () -> IO ()) -> IO Result)]
 
 data SomeCap = forall c. TestCapabilities c => SomeCap c
 
@@ -98,15 +103,14 @@ createWdMan maxSess mSettings = do
 -- pool of sessions for each enumeration item.  When calling 'createSessionManager', the already
 -- existing sessions are loaded and used as the initial sessions in the pools.  If a thread asks for
 -- a session but none is available, one of two things happens:  if the total number of sessions for
--- this enumeration item is larger than the argument, the thread will block until a session is
--- available.  If the total number of sessions for this enumeration item is smaller than the
--- argument, a new session will be created.  This is only relevant if you run tests in parallel,
+-- this enumeration item is larger than the argument to 'createSessionManager', the thread will
+-- block until a session is available.  If the total number of sessions for this enumeration item is
+-- smaller, a new session will be created.  This is only relevant if you run tests in parallel,
 -- since when running tests serially at most one session will be in use at any one time in any case.
 -- Note that sessions are never closed by the manager.
 --
 -- If you do not call 'createSessionManager', when the very first test is run a new manager will be
--- created where the maximum number of sessions per enumeration item is one (which is fine for
--- serial tests).
+-- created where the maximum number of sessions per enumeration item is one.
 createSessionManager :: Int -- ^ threshold number of sessions per enumeration item beyond which new 
                             -- sessions are no longer created.  Note you can set this to zero so
                             -- that new sessions are never created; the only sessions used will be
@@ -164,15 +168,16 @@ findSession sc@(SomeCap c) m =
             writeTVar sessionManager $ Just m'
             findSession sc m'
 
--- | Take a session out of the pool, creating or blocking if needed.  The new session is set into
--- the 'WD' monad.
-takeSession :: SomeCap -> WD ()
-takeSession sc = do
+-- | Take a session out of the pool, using an existing unused session, creating a new session, or
+-- blocking if the maximum number of sessions already exist.  The new session is set into the 'WD'
+-- monad.  Note the session can leak if you do not properly call 'putSessionId'.
+takeSession :: TestCapabilities s => s -> WD ()
+takeSession s = do
     msess <- liftIO $ atomically $ do
         mm <- readTVar sessionManager
         case mm of
             Nothing -> return Nothing
-            Just m -> do r <- findSession sc m
+            Just m -> do r <- findSession (SomeCap s) m
                          return $ Just (r, mwdHost m, mwdPort m, mwdBasePath m)
     case msess of
         Just (r, host, port, bpath) -> do
@@ -188,22 +193,23 @@ takeSession sc = do
 
         Nothing -> do
             createWdMan 1 Nothing
-            takeSession sc
+            takeSession s
 
--- | Add a session back into the pool
-putSessionId :: SomeCap -> SessionId -> WD ()
-putSessionId sc sid = liftIO $ atomically $ do
+-- | Add a session ID back into the pool.
+putSessionId :: TestCapabilities s => s -> SessionId -> WD ()
+putSessionId s sid = liftIO $ atomically $ do
     mm <- readTVar sessionManager
     let m = maybe (error "Cannot put a session to an uninitialized manager") id mm
-    case M.lookup sc $ managedSessions m of
+    case M.lookup (SomeCap s) $ managedSessions m of
         Nothing -> error "Cannot put a session to a cap that does not exist"
         Just tvar -> do
             (ss,cnt) <- readTVar tvar
             writeTVar tvar (sid:ss,cnt-1)
 
--- | Find or create a session
+-- | Find or create a new session, set it into the 'WD' monad, run the given action, and return the
+-- session back into the pool once the action completes or an exception occurs.
 withCaps :: TestCapabilities s => s -> WD a -> WD a
 withCaps tc test = do
-    takeSession $ SomeCap tc
+    takeSession tc
     sess <- getSession
-    test `finally` putSessionId (SomeCap tc) (fromJust $ wdSessId sess)
+    test `finally` putSessionId tc (fromJust $ wdSessId sess)
