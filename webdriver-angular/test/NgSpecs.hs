@@ -1,23 +1,13 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable #-}
-module Specs where
+module NgSpecs where
 
-import Data.Typeable (Typeable)
 import Test.Hspec.WebDriver
 import Test.WebDriver.Commands
 import Test.WebDriver.Commands.Angular
-import qualified Test.WebDriver.Capabilities as W
+import Caps
 
-data TestCaps = Firefox
-    deriving (Show,Eq,Enum,Bounded,Typeable)
-
-instance TestCapabilities TestCaps where
-    matchesCaps Firefox (W.Capabilities { W.browser = W.Firefox _ _ _ }) = True
-    matchesCaps _ _ = False
-
-    newCaps Firefox = return W.defaultCaps -- defaultCaps uses Firefox.
-
-specs :: Spec
-specs = describe "Angular webdriver commands" $ do
+ngSpecs :: Spec
+ngSpecs = describe "Angular webdriver commands" $ do
     it "finds elements by binding" (with Firefox) $ do
         openPage "http://localhost:3456/index.html"
         waitForAngular "body" `shouldReturn` True
