@@ -44,7 +44,7 @@
 -- >            e `shouldHaveText` "Compiling"
 --
 -- The above code assumes selenium-server-standalone is running on @127.0.0.1:4444@ at path
--- @\/wd\/hub@ (this is the default).  You can configure this using 'createSessionManager'. 
+-- @\/wd\/hub@ (this is the default).  You can configure this using `createSessionManager'`. 
 module Test.Hspec.WebDriver(
   -- * Webdriver
     TestCapabilities(..)
