@@ -1,6 +1,5 @@
 This package integrates [hspec](http://hspec.github.io) with
 [hs-webdriver](https://hackage.haskell.org/package/webdriver), allowing you to write webdriver tests
-using hspec.  The `webdriver-angular` package has some example tests
-[Specs.hs](https://bitbucket.org/wuzzeb/hs-webdriver-angular/src/tip/webdriver-angular/test/Specs.hs/?at=default).
-(Even though the test page uses AngularJs, the use of the `hspec-webdriver` package is a good
-example.)
+using hspec.  This package contains no code testing the `hspec-webdriver` package itself.  The
+`webdriver-angular` package contains some test code which test both the Angular webdriver commands
+in `webdriver-angular` and some tests of functions in `hspec-webdriver`. 
