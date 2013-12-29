@@ -1,12 +1,9 @@
 {-# LANGUAGE ExistentialQuantification #-}
 module Test.Hspec.WebDriver.Internal(
     TestCapabilities(..)
-  , WdExample(..)
   , createSessionManager
   , createSessionManager'
   , withCaps
-  , takeSession
-  , putSessionId
 ) where
 
 import Control.Concurrent.STM
@@ -20,35 +17,36 @@ import Data.Word (Word16)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.WebDriver
 import Test.WebDriver.Classes
-import Test.Hspec.Core (Params, Result)
 import qualified Data.HashMap.Lazy as M
 
--- | Provides information about the browser capabilities you are using for testing.  You must make
+-- | Provides information about the browser capabilities used for testing.  If you want more control
+-- over capabilities, you should hide @BrowserDefaults@ and then make
 -- an enumeration of all the webdriver capabilities you will be testing with.  For example,
 --
 -- >data TestCaps = Firefox
 -- >              | FirefoxWithoutJavascript
 -- >              | Chrome
+-- >              | IE8
+-- >              | IE9
 -- >   deriving (Show, Eq, Bounded, Enum, Typeable)
 --
--- (The 'Typeable' instance is needed for an @Eq@ instance on an existentially quantified type
--- over @TestCapabilities@.)
+-- @TestCaps@ must then be made an instance of @TestCapabilities@.  Also, instances of @Using@
+-- should be created.
 class (Eq c, Enum c, Typeable c) => TestCapabilities c where
 
     -- | Check if the 'Capabilities' match your enumeration.  Note that these capabilities
     -- will be the actual capabilities (with things like version information filled in)
-    -- so you should not use @==@ to compare capabilities.  For example, to match Chrome
-    -- you could use
-    --
-    -- > matchCaps Chrome (Capabilities { browser = Chrome _ _ _ _}) = True
+    -- so you should not use @==@ to compare capabilities, only check the actual capabilities you
+    -- care about.
     matchesCaps :: c -> Capabilities -> Bool
 
     -- | The capabilities to pass to 'createSession' when no existing session is found.
     newCaps :: c -> WD Capabilities
 
--- | A behavioral example for webdriver sessions.
-class WdExample a where
-    evaluateWdExamples :: a -> [(String, Params -> (IO () -> IO ()) -> IO Result)]
+-- | This instance is used for pending messages, no capabilities are matched or created.
+instance TestCapabilities () where
+    matchesCaps () _ = False
+    newCaps () = error "Cannot create caps for ()"
 
 data SomeCap = forall c. TestCapabilities c => SomeCap c
 
@@ -120,7 +118,7 @@ createSessionManager maxSess = runWD defaultSession $ createWdMan maxSess Nothin
 
 -- | Same as 'createSessionManager' but allows you to specify the webdriver host, port, and base
 -- path for all sessions.
-createSessionManager' :: Int  -- ^ maximum number of sessions per enumeration item
+createSessionManager' :: Int  -- ^ threshold number of sessions per enumeration item
                       -> String -- ^ host
                       -> Word16 -- ^ port
                       -> String -- ^ base path
