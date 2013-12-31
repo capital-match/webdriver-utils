@@ -8,7 +8,7 @@ author:            John Lenz <lenz@math.uic.edu>
 maintainer:        John Lenz <lenz@math.uic.edu>
 license:           MIT
 license-file:      LICENSE
-homepage:          https://bitbucket.org/wuzzeb/hs-webdriver-angular
+homepage:          https://bitbucket.org/wuzzeb/webdriver-utils
 stability:         Experimental
 description:       For end to end testing of web applications from Haskell, the 
                    <https://hackage.haskell.org/package/webdriver webdriver> package is a great tool but just
@@ -19,7 +19,7 @@ extra-source-files: README.md
 
 source-repository head
     type: mercurial
-    location: https://bitbucket.org/wuzzeb/hs-webdriver-angular
+    location: https://bitbucket.org/wuzzeb/webdriver-utils
 
 library
     hs-source-dirs:  .
