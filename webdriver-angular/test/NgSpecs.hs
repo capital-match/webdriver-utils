@@ -92,10 +92,9 @@ ngSpecs = describe "Angular webdriver commands" $ do
         c2 `shouldBeTag` "span"
         c2 `shouldHaveText` "poodle"
 
-        -- These currently cause Javascript errors
-        --findRepeaters (ByRowAndCol "cat in cats" 12 "{{cat.name}}") `shouldReturn` []
-        --findRepeater (ByRowAndCol "cat in cats" 22 "{{cat.name}}") `shouldThrow`
-        --    NgException "Selector ByRowAndCol \"cat in cats\" 22 \"{{cat.name}}\" returned []"
+        findRepeaters (ByRowAndCol "cat in cats" 12 "{{cat.name}}") `shouldReturn` []
+        findRepeater (ByRowAndCol "cat in cats" 22 "{{cat.name}}") `shouldThrow`
+            NgException "Selector ByRowAndCol \"cat in cats\" 22 \"{{cat.name}}\" returned []"
 
     it "evaluates an angular expression" $ using Firefox $ do
         e <- findNg $ ByBinding "{{a}}"

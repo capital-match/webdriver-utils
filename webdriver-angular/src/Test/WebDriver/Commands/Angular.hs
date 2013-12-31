@@ -25,8 +25,10 @@ module Test.WebDriver.Commands.Angular (
     , getLocationAbsUrl
     ) where
 
+import Control.Applicative ((<$>))
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Exception (throwIO, Exception)
+import Data.Maybe (catMaybes)
 import Data.Monoid ((<>))
 import Data.Typeable (Typeable)
 import Test.WebDriver.Classes
@@ -57,7 +59,8 @@ execElems script arg = do
     case (x, A.fromJSON x) of
         (A.Null, _) -> return []
         (A.Array _, A.Success [A.Null]) -> return []
-        _ -> fromJSON' x
+        _ -> catMaybes <$> fromJSON' x -- parse as [Maybe Element] and drop the nothings because
+                                       -- looking up ByRow returns Nulls in the list.
 
 {-
 asyncCS :: (WebDriver wd, A.FromJSON a) => T.Text -> [JSArg] -> wd (Maybe a)
