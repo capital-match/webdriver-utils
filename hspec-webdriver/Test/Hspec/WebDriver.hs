@@ -25,7 +25,7 @@
 -- >            e `shouldBeTag` "div"
 -- >            e `shouldHaveText` "Compiling"
 -- >
--- >        it "checks image of 1023" pending
+-- >        it "checks image of 1310" pending
 --
 -- The above code assumes selenium-server-standalone is running on @127.0.0.1:4444@ at path
 -- @\/wd\/hub@ (this is the default).  You can configure this using `createSessionManager'`. 
@@ -80,14 +80,14 @@ import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, it
 import Test.Hspec.Core (Result(..), fromSpecList, SpecTree(..), Item(..), Params)
 import Test.WebDriver hiding (Browser(..))
 import Test.WebDriver.Commands
-import qualified Test.WebDriver.Capabilities as W
+import qualified Test.WebDriver as W
 import qualified Test.Hspec as H
 import qualified Data.Text as T
 
 import Test.Hspec.WebDriver.Internal
 
 -- | Webdriver expectations consist of a set of browser 'Capabilities' to use and the actual test as
--- a 'WD' monad.  The browser capabilities are specified by an enumeration which is an instance of
+-- a 'W.WD' monad.  The browser capabilities are specified by an enumeration which is an instance of
 -- 'TestCapabilities'.  The @BrowserDefaults@ enumeration provides items that represent the default set of
 -- capabilities for each browser.  When creating new sessions, the 'defaultCaps' are used.  Also,
 -- any existing session (which exists at program startup) which matches the browser is used, no
@@ -96,7 +96,7 @@ import Test.Hspec.WebDriver.Internal
 -- To obtain more control over the capabilities (e.g. to test multiple versions of IE or to test
 -- Firefrox without javascript), you should @import Test.Hspec.WebDriver hiding (BrowserDefaults)@
 -- and then create your own enumeration which is an instance of 'TestCapabilities' and 'Using'.
-data BrowserDefaults = Firefox | Chrome | IE | Opera | IPhone | IPad | Android | HTMLUnit
+data BrowserDefaults = Firefox | Chrome | IE | Opera | IPhone | IPad | Android
     deriving (Eq, Show, Enum, Bounded, Typeable)
 
 instance TestCapabilities BrowserDefaults where
@@ -107,7 +107,6 @@ instance TestCapabilities BrowserDefaults where
     matchesCaps IPhone (Capabilities { browser = W.IPhone}) = True
     matchesCaps IPad (Capabilities { browser = W.IPad }) = True
     matchesCaps Android (Capabilities { browser = W.Android }) = True
-    matchesCaps HTMLUnit (Capabilities { browser = W.HTMLUnit}) = True
     matchesCaps _ _ = False
 
     newCaps Firefox = return $ defaultCaps { browser = firefox }
@@ -117,7 +116,6 @@ instance TestCapabilities BrowserDefaults where
     newCaps IPhone = return $ defaultCaps { browser = iPhone }
     newCaps IPad = return $ defaultCaps { browser = iPad }
     newCaps Android = return $ defaultCaps { browser = android }
-    newCaps HTMLUnit = return $ defaultCaps { browser = W.htmlUnit }
 
 -- | A webdriver expectation is either an action and a list of capabilities (which should be an instance of
 -- 'TestCapabilities') or a pending message.
