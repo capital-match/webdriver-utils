@@ -58,10 +58,8 @@ module Test.Hspec.WebDriver(
   , Spec
   , describe
   , context
-  , before
-  , after
-  , around
   , parallel
+  -- $beforeTodo
 
   -- * Re-exports from "Test.WebDriver"
   , WD
@@ -216,3 +214,6 @@ shouldThrow w expected = do
     case r of
         Left err -> err `shouldBe` expected
         Right _ -> liftIO $ assertFailure $ "did not get expected exception " ++ show expected
+
+-- $beforeTodo
+-- Future TODO: lift 'before', 'after', and 'around' into the 'WD' monad.
