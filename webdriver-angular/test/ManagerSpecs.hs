@@ -1,16 +1,13 @@
 {-# LANGUAGE OverloadedStrings, DeriveDataTypeable #-}
 module ManagerSpecs where
 
-import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (threadDelay)
 import Test.Hspec.WebDriver
-import Test.WebDriver.Commands
 import Test.WebDriver.Commands.Angular
-import Caps
 
 mSpecs :: Spec
 mSpecs = describe "session manager tests" $ do
-    parallel $ it "runs in parallel" [Firefox, Chrome] $ do
+    parallel $ it "runs in parallel" $ using [Firefox, Chrome] $ do
         openPage "http://localhost:3456/index.html"
         waitForAngular "body" `shouldReturn` True
 
@@ -27,7 +24,7 @@ mSpecs = describe "session manager tests" $ do
 
     parallel $ do
         describe "Firefox 1" $
-            it "waits for a while" (with Firefox) $ do
+            it "waits for a while" $ using Firefox $ do
                 openPage "http://localhost:3456/index.html"
                 waitForAngular "body" `shouldReturn` True
                 
@@ -37,7 +34,7 @@ mSpecs = describe "session manager tests" $ do
                 liftIO $ threadDelay $ 2 * 10^(6::Int)
 
         describe "Firefox 2" $
-            it "waits for a while" (with Firefox) $ do
+            it "waits for a while" $ using Firefox $ do
                 openPage "http://localhost:3456/index.html"
                 waitForAngular "body" `shouldReturn` True
                 
@@ -47,7 +44,7 @@ mSpecs = describe "session manager tests" $ do
                 liftIO $ threadDelay $ 2 * 10^(6::Int)
 
         describe "Firefox 3" $
-            it "waits for a while" (with Firefox) $ do
+            it "waits for a while" $ using Firefox $ do
                 openPage "http://localhost:3456/index.html"
                 waitForAngular "body" `shouldReturn` True
                 
