@@ -77,7 +77,8 @@ waitForAngular :: (MonadIO wd, WebDriver wd)
                -> wd Bool
 waitForAngular sel = do
     --a <- asyncCS "waitForAngular" [JSArg sel] :: WebDriver wd => wd (Maybe 
-    
+    -- see https://github.com/kallisti-dev/hs-webdriver/pull/20 for the bug in asyncJS
+
     let body = maybe (error $ "Unable to find waitForAngular") id $ M.lookup "waitForAngular" cs
         body' = "var oldDone = arguments[1]; arguments[1] = function(e) { oldDone(e || true); };" <> body
     a <- asyncJS [JSArg sel] body'
