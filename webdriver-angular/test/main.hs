@@ -7,7 +7,7 @@ import Network.Wai.Application.Static
 import Network.Wai.Handler.Warp (run)
 import Test.Hspec (hspec)
 
-import NgSpecs
+import NgSpec
 
 startServer :: IO ThreadId
 startServer = forkIO $

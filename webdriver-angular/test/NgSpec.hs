@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable #-}
-module NgSpecs where
+{-# LANGUAGE OverloadedStrings #-}
+module NgSpec where
 
 import Test.Hspec.WebDriver
 import Test.WebDriver.Commands.Angular
