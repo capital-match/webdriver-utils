@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, GeneralizedNewtypeDeriving #-}
 -- | Write hspec tests that are webdriver tests, automatically managing the webdriver sessions.
 --
 -- This module re-exports functions from "Test.Hspec" and "Test.WebDriver.Commands" and it is
@@ -13,30 +13,33 @@
 -- >main :: IO ()
 -- >main = hspec $
 -- >    describe "XKCD Tests" $ do
--- >        it "checks hover text of 327" $ using Firefox $ do
--- >            openPage "http://www.xkcd.com/327/"
--- >            e <- findElem $ ByCSS "div#comic > img"
--- >            e `shouldBeTag` "img"
--- >            e `shouldHaveAttr` ("title", "Her daughter is named Help I'm trapped in a driver's license factory.")
 -- >
--- >        parallel $ it "checks title of 303" $ using [Firefox, Chrome] $ do
--- >            openPage "http://www.xkcd.com/303/"
--- >            e <- findElem $ ById "ctitle"
--- >            e `shouldBeTag` "div"
--- >            e `shouldHaveText` "Compiling"
+-- >        session "for 327" $ using Firefox $ do
+-- >            it "opens the page" $ runWD $
+-- >                openPage "http://www.xkcd.com/327/"
+-- >            it "checks hover text" $ runWD $ do
+-- >                e <- findElem $ ByCSS "div#comic > img"
+-- >                e `shouldBeTag` "img"
+-- >                e `shouldHaveAttr` ("title", "Her daughter is named Help I'm trapped in a driver's license factory.")
 -- >
--- >        it "checks image of 1310" pending
+-- >        parallel $ session "for 303" $ using [Firefox, Chrome] $ do
+-- >            it "opens the page" $ runWD $
+-- >                openPage "http://www.xkcd.com/303/"
+-- >            it "checks the title" $ runWD $ do
+-- >                e <- findElem $ ById "ctitle"
+-- >                e `shouldBeTag` "div"
+-- >                e `shouldHaveText` "Compiling"
 --
 -- The above code assumes selenium-server-standalone is running on @127.0.0.1:4444@ at path
--- @\/wd\/hub@ (this is the default).  You can configure this using `createSessionManager'`. 
+-- @\/wd\/hub@ (this is the default).
 module Test.Hspec.WebDriver(
   -- * Webdriver
     BrowserDefaults(..)
-  , it
+  , session
+  , sessionOn
+  , runWD
+  , WDExample
   , Using(..)
-  , pending
-  , pendingWith
-  , WdExpectation(..)
 
   -- * Expectations
   , shouldBe
@@ -46,140 +49,135 @@ module Test.Hspec.WebDriver(
   , shouldReturn
   , shouldThrow
 
-  -- * Session Manager
-  , createSessionManager
-  , createSessionManager'
-
   -- * Custom Capabilities
   , TestCapabilities(..)
 
-  -- * Re-exports from hspec
+  -- * Re-exports from "Test.Hspec"
   , hspec
   , Spec
   , describe
+  , it
   , context
   , parallel
-  -- $beforeTodo
+  , pending
+  , pendingWith
 
   -- * Re-exports from "Test.WebDriver"
   , WD
   , liftIO
   , module Test.WebDriver.Commands
-
-  -- * Internal
-  , withCaps
 ) where
 
-import Control.Exception.Lifted (try, Exception)
+import Control.Exception.Lifted (try, Exception, onException, throwIO)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
+import Data.IORef
 import Data.Typeable (Typeable)
+import Data.Word (Word16)
 import Test.HUnit (assertEqual, assertFailure)
-import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, it, pending, pendingWith)
-import Test.Hspec.Core (Result(..), fromSpecList, SpecTree(..), Item(..), Params)
-import Test.WebDriver hiding (Browser(..))
-import Test.WebDriver.Commands
-import qualified Test.WebDriver as W
-import qualified Test.Hspec as H
 import qualified Data.Text as T
 
-import Test.Hspec.WebDriver.Internal
+import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow)
+import Test.Hspec.Core (Result(..))
+import qualified Test.Hspec as H
 
--- | Webdriver expectations consist of a set of browser 'Capabilities' to use and the actual test as
--- a 'W.WD' monad.  The browser capabilities are specified by an enumeration which is an instance of
+import Test.WebDriver (WD)
+import Test.WebDriver.Commands
+import qualified Test.WebDriver as W
+import qualified Test.WebDriver.Classes as W
+
+import qualified Test.Hspec.WebDriver.Internal as I
+
+-- | Webdriver expectations consist of a set of browser 'W.Capabilities' to use and the actual test as
+-- a 'WD' monad.  The browser capabilities are specified by an enumeration which is an instance of
 -- 'TestCapabilities'.  The @BrowserDefaults@ enumeration provides items that represent the default set of
--- capabilities for each browser.  When creating new sessions, the 'defaultCaps' are used.  Also,
--- any existing session (which exists at program startup) which matches the browser is used, no
--- matter the actual capabilities.
+-- capabilities for each browser (see 'W.defaultCaps').
 --
 -- To obtain more control over the capabilities (e.g. to test multiple versions of IE or to test
 -- Firefrox without javascript), you should @import Test.Hspec.WebDriver hiding (BrowserDefaults)@
 -- and then create your own enumeration which is an instance of 'TestCapabilities' and 'Using'.
 data BrowserDefaults = Firefox | Chrome | IE | Opera | IPhone | IPad | Android
-    deriving (Eq, Show, Enum, Bounded, Typeable)
+    deriving (Eq, Show, Enum, Bounded)
+
+-- | Provides information about the browser capabilities used for testing.  If you want more control
+-- over capabilities, you should hide 'BrowserDefaults' and then make an enumeration of all the
+-- webdriver capabilities you will be testing with.  For example,
+--
+-- >data TestCaps = Firefox
+-- >              | FirefoxWithoutJavascript
+-- >              | Chrome
+-- >              | IE8
+-- >              | IE9
+-- >   deriving (Show, Eq, Bounded, Enum)
+--
+-- @TestCaps@ must then be made an instance of @TestCapabilities@.  Also, instances of @Using@
+-- should be created.
+class Show c => TestCapabilities c where
+    -- | The capabilities to pass to 'createSession'.
+    newCaps :: c -> WD W.Capabilities
 
 instance TestCapabilities BrowserDefaults where
-    matchesCaps Firefox (Capabilities { browser = W.Firefox _ _ _ }) = True
-    matchesCaps Chrome (Capabilities { browser = W.Chrome _ _ _ _ }) = True
-    matchesCaps IE (Capabilities { browser = W.IE _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ }) = True
-    matchesCaps Opera (Capabilities { browser = W.Opera _ _ _ _ _ _ _ _ _ _ _ _ }) = True
-    matchesCaps IPhone (Capabilities { browser = W.IPhone}) = True
-    matchesCaps IPad (Capabilities { browser = W.IPad }) = True
-    matchesCaps Android (Capabilities { browser = W.Android }) = True
-    matchesCaps _ _ = False
+    newCaps Firefox = return $ W.defaultCaps { W.browser = W.firefox }
+    newCaps Chrome = return $ W.defaultCaps { W.browser = W.chrome }
+    newCaps IE = return $ W.defaultCaps { W.browser = W.ie }
+    newCaps Opera = return $ W.defaultCaps { W.browser = W.opera }
+    newCaps IPhone = return $ W.defaultCaps { W.browser = W.iPhone }
+    newCaps IPad = return $ W.defaultCaps { W.browser = W.iPad }
+    newCaps Android = return $ W.defaultCaps { W.browser = W.android }
 
-    newCaps Firefox = return $ defaultCaps { browser = firefox }
-    newCaps Chrome = return $ defaultCaps { browser = chrome }
-    newCaps IE = return $ defaultCaps { browser = ie }
-    newCaps Opera = return $ defaultCaps { browser = opera }
-    newCaps IPhone = return $ defaultCaps { browser = iPhone }
-    newCaps IPad = return $ defaultCaps { browser = iPad }
-    newCaps Android = return $ defaultCaps { browser = android }
-
--- | A webdriver expectation is either an action and a list of capabilities (which should be an instance of
--- 'TestCapabilities') or a pending message.
-data WdExpectation cap = WdTest [cap] (WD ())
-                       | WdPending (Maybe String)
-
--- | Evaluate an expectation to a list of the function expected by hspec.
-evaluateWd :: (Show cap, TestCapabilities cap) => WdExpectation cap -> [(String,Params -> (IO () -> IO ()) -> IO Result)]
-evaluateWd (WdPending msg) = [("", \_ _ -> return $ Pending msg)]
-evaluateWd (WdTest cs test) = map mkItem cs
-    where
-        mkItem c = ("using " ++ show c, eval c)
-
-        eval :: TestCapabilities c => c -> params -> (IO () -> IO ()) -> IO Result
-        eval c _ action = do action (runWD defaultSession $ withCaps c test)
-                             return Success
-
--- | A typeclass of things which can be converted to a 'WdExpectation'.  This is the primary method
--- to create expectations to pass to 'it'.  Both a single 'BrowserDefaults' and a list
--- of 'BrowserDefaults' can be used.
+-- | Combine the examples nested inside this call into a webdriver session.  For each capability in
+-- the list, before the first example is executed, a new webdriver session is created using the
+-- capabilities.  The examples are then executed in depth-first order using this webdriver session
+-- (so later examples can rely on the browser state created by earlier examples).  Once the final
+-- example has executed, the session is closed.  If some 'WDExample' fails (throws an exception),
+-- all remaining examples in the session will become pending.
 --
--- >it "opens the home page" $ using Firefox $ do
--- >    ...
--- >it "opens the users page" $ using [Firefox, Chrome] $ do
+-- Note that when using 'parallel', the examples within a single session will still execute
+-- serially.  Different sessions (including the multiple sessions created if more than one
+-- capability is passed to 'session') will be executed in parallel.
+--
+-- This function uses the default webdriver host (127.0.0.1), port (4444), and
+-- basepath (@\/wd\/hub@).
+session :: TestCapabilities cap => String -> ([cap], Spec) -> Spec
+session = hSessionWd W.defaultSession
+
+-- | A variation of 'session' which allows you to specify the webdriver host, port, and basepath.
+sessionOn :: TestCapabilities cap
+          => String -- ^ host
+          -> Word16 -- ^ port
+          -> String -- ^ base path
+          -> String -- ^ message
+          -> ([cap], Spec)
+          -> Spec
+sessionOn host port bp = hSessionWd W.WDSession { W.wdHost = host
+                                                , W.wdPort = port
+                                                , W.wdBasePath = bp
+                                                , W.wdSessId = Nothing
+                                                , W.lastHTTPRequest = Nothing
+                                                }
+
+-- | A typeclass of things which can be converted to a list of capabilities.  It's primary purpose
+-- is to allow the word @using@ to be used with 'session' so that the session description reads like
+-- a sentance.
+--
+-- >session "for the home page" $ using Firefox $ do
+-- >    it "loads the page" $ runWD $ do
+-- >        ...
+-- >    it "scrolls the carosel" $ runWD $ do
+-- >        ...
+-- >session "for the users page" $ using [Firefox, Chrome] $ do
 -- >    ...
 class Using a where
-    type UsingCapabilities a :: *
-    using :: a -> WD () -> WdExpectation (UsingCapabilities a)
+    type UsingList a
+    using :: a -> Spec -> (UsingList a, Spec)
 
 instance Using BrowserDefaults where
-    type UsingCapabilities BrowserDefaults = BrowserDefaults
-    using d = WdTest [d]
+    type UsingList BrowserDefaults = [BrowserDefaults]
+    using d s = ([d], s)
 
 instance Using [BrowserDefaults] where
-    type UsingCapabilities [BrowserDefaults] = BrowserDefaults
-    using = WdTest
-
--- | Create a spec from a webdriver expectation.
---
--- The webdriver expectation consists of a list of browser capabilities and the actual test.  The
--- test will be executed once for each set of capabilities in the list.  By default, the tests will be
--- executed serially.  You can use 'parallel' to execute the test on all capabilities in parallel.
---
--- To run the test, a webdriver session is allocated from a pool of sessions (in a thread-safe
--- manner).  The pools will be initialized automatically from existing sessions the first time a
--- test is run; you can explicitly create the pools using 'createSessionManager'.
-it :: (Show cap, TestCapabilities cap) => String -> WdExpectation cap -> Spec
-it msg a = spec
-    where
-        mkItem m f = SpecItem Item { itemIsParallelizable = False
-                                   , itemRequirement = m
-                                   , itemExample = f
-                                   }
-        spec = case evaluateWd a of
-                [] -> fromSpecList []
-                [("",f)] -> fromSpecList [mkItem (msg) f]
-                [(m,f)] -> fromSpecList [mkItem (msg ++ " " ++ m) f]
-                ss -> describe msg $ fromSpecList $ map (uncurry mkItem) ss
-
--- | A 'WdExpectation' that is pending.
-pending :: WdExpectation ()
-pending = WdPending Nothing
-
--- | A 'WdExpectation' that is pending, with a message.
-pendingWith :: String -> WdExpectation ()
-pendingWith = WdPending . Just
+    type UsingList [BrowserDefaults] = [BrowserDefaults]
+    using d s = (d, s)
 
 -- | 'H.shouldBe' lifted into the 'WD' monad.
 shouldBe :: (Show a, Eq a) => a -> a -> WD ()
@@ -215,5 +213,52 @@ shouldThrow w expected = do
         Left err -> err `shouldBe` expected
         Right _ -> liftIO $ assertFailure $ "did not get expected exception " ++ show expected
 
--- $beforeTodo
--- Future TODO: lift 'before', 'after', and 'around' into the 'WD' monad.
+
+--------------------------------------------------------------------------------
+-- Internal Test Runner
+--------------------------------------------------------------------------------
+
+-- | State passed between examples
+data WdState = WdState {
+   stSession :: W.WDSession -- ^ the webdriver session
+ , stError :: IORef Bool    -- ^ has an error occured in an earlier example?  We rely on the serialization
+                            --   of examples to ensure that at most one thread is reading/writing this
+                            --   ioref.
+} deriving Typeable
+
+-- | The initial session is used only for its host, port, and basepath.  A new session is created.
+createSt :: TestCapabilities cap => W.WDSession -> cap -> IO WdState
+createSt sess cap = do
+    err <- newIORef False
+    sess' <- W.runWD sess $ newCaps cap >>= createSession
+    return $ WdState sess' err
+
+closeSt :: WdState -> IO ()
+closeSt st = W.runWD (stSession st) closeSession
+
+-- | The 'WDSession' passed in is used for its host, port, and base path.
+hSessionWd :: TestCapabilities cap => W.WDSession -> String -> ([cap], Spec) -> Spec
+hSessionWd sess msg (caps, spec) = spec'
+    where
+        spec' = case caps of
+                    [] -> it msg $ pendingWith "No capabilities specified"
+                    [c] -> describe (msg ++ " using " ++ show c) $ proc c spec
+                    _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ proc c spec) caps
+
+        proc cap = I.session (createSt sess cap) closeSt
+
+-- | An example that can be passed to 'it' containing a webdriver action.  It must be created with
+-- 'runWD'.
+newtype WDExample = WdExample (I.SessionExample WdState)
+    deriving Example
+
+-- | Create an example from a 'WD' action.  This /must/ be nested inside a call to 'session' or
+-- 'sessionOn'.
+runWD :: WD () -> WDExample
+runWD w = WdExample $ I.SessionExample $ \s -> W.runWD (stSession s) $ do
+    err <- liftIO $ readIORef $ stError s
+    when err $ throwIO $ Pending $ Just "previous example had an error"
+
+    w `onException` liftIO (writeIORef (stError s) True)
+    swd <- W.getSession
+    return s { stSession = swd }
