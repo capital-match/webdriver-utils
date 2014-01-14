@@ -82,13 +82,12 @@ sessionItem sess i item = item { itemExample = \p a -> runTest $ itemExample ite
                         (_, Nothing) -> close ma >> E.throwIO err
 
                         -- A session test, where in addition the open function succeeded.
-                        (Right a, Just (SessionTest act f)) ->
-                            (do act $ do
-                                    a' <- f a 
+                        (Right a, Just (SessionTest act f)) -> do
+                            act $ do
+                                a' <- f a 
                                         `E.onException` close ma -- use old state on error
-                                    close $ Right a' -- use new state
-                                return Success
-                            ) `E.catch` \r -> return r
+                                close $ Right a' -- use new state
+                            return Success
                             
                         -- A session test where the state ma is an error (which is the error
                         -- thrown by open).  Pass the error ma to the next test and throw the

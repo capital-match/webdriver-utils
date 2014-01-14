@@ -68,7 +68,7 @@ module Test.Hspec.WebDriver(
   , module Test.WebDriver.Commands
 ) where
 
-import Control.Exception.Lifted (try, Exception, onException, throwIO)
+import Control.Exception.Lifted (try, Exception, onException, throwIO, catch)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef
@@ -78,7 +78,7 @@ import Test.HUnit (assertEqual, assertFailure)
 import qualified Data.Text as T
 
 import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow)
-import Test.Hspec.Core (Result(..))
+import Test.Hspec.Core (Result(..), Item(..), mapSpecItem)
 import qualified Test.Hspec as H
 
 import Test.WebDriver (WD)
@@ -245,7 +245,10 @@ hSessionWd sess msg (caps, spec) = spec'
                     [c] -> describe (msg ++ " using " ++ show c) $ proc c spec
                     _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ proc c spec) caps
 
-        proc cap = I.session (createSt sess cap) closeSt
+        proc cap = mapSpecItem addCatchResult . I.session (createSt sess cap) closeSt
+
+        addCatchResult item = item { itemExample = \p a -> itemExample item p a
+                                                            `catch` \r -> return r }
 
 -- | An example that can be passed to 'it' containing a webdriver action.  It must be created with
 -- 'runWD'.
