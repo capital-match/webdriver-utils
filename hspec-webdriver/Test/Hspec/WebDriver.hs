@@ -226,6 +226,11 @@ data WdState = WdState {
                             --   ioref.
 } deriving Typeable
 
+-- | Used to signal that a previous example had an error
+data PrevHasError = PrevHasError
+    deriving (Show, Typeable)
+instance Exception PrevHasError
+
 -- | The initial session is used only for its host, port, and basepath.  A new session is created.
 createSt :: TestCapabilities cap => W.WDSession -> cap -> IO WdState
 createSt sess cap = do
@@ -247,8 +252,9 @@ hSessionWd sess msg (caps, spec) = spec'
 
         proc cap = mapSpecItem addCatchResult . I.session (createSt sess cap) closeSt
 
-        addCatchResult item = item { itemExample = \p a -> itemExample item p a
-                                                            `catch` \r -> return r }
+        addCatchResult item = item {
+            itemExample = \p a -> itemExample item p a
+                                    `catch` \PrevHasError -> return $ Pending $ Just "previous example had error" }
 
 -- | An example that can be passed to 'it' containing a webdriver action.  It must be created with
 -- 'runWD'.
@@ -260,7 +266,7 @@ newtype WDExample = WdExample (I.SessionExample WdState)
 runWD :: WD () -> WDExample
 runWD w = WdExample $ I.SessionExample $ \s -> W.runWD (stSession s) $ do
     err <- liftIO $ readIORef $ stError s
-    when err $ throwIO $ Pending $ Just "previous example had an error"
+    when err $ throwIO PrevHasError
 
     w `onException` liftIO (writeIORef (stError s) True)
     swd <- W.getSession
