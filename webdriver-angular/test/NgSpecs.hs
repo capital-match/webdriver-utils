@@ -4,21 +4,22 @@ module NgSpecs where
 import Test.Hspec.WebDriver
 import Test.WebDriver.Commands.Angular
 
-ngSpecs :: Spec
-ngSpecs = describe "Angular webdriver commands" $ do
-    it "finds elements by binding" $ using Firefox $ do
+ngSpec :: Spec
+ngSpec = session "Angular webdriver commands" $ using Firefox $ do
+    it "opens the page" $ runWD $ do
         openPage "http://localhost:3456/index.html"
         waitForAngular "body" `shouldReturn` True
 
+    it "finds elements by binding" $ runWD $ do
         binding <- findNg $ ByBinding "{{a}}"
         binding `shouldBeTag` "h1"
         binding `shouldHaveText` "Hello A!"
 
-    it "does not find missing model elements" $ using Firefox $ do
+    it "does not find missing model elements" $ runWD $ do
         findNgs (ByModel "qqq") `shouldReturn` []
         findNg (ByModel "qqq") `shouldThrow` NgException "Selector ByModel \"qqq\" returned []"
 
-    it "finds input elements" $ using Firefox $ do
+    it "finds input elements" $ runWD $ do
         i <- findNg $ ByModel "xxx"
         i `shouldBeTag` "input"
         sendKeys "John" i
@@ -27,7 +28,7 @@ ngSpecs = describe "Angular webdriver commands" $ do
         xHead `shouldBeTag` "h1"
         xHead `shouldHaveText` "X John"
 
-    it "finds textarea elements" $ using Firefox $ do
+    it "finds textarea elements" $ runWD $ do
         t <- findNg $ ByModel "yyy"
         t `shouldBeTag` "textarea"
         sendKeys "Mark" t
@@ -36,7 +37,7 @@ ngSpecs = describe "Angular webdriver commands" $ do
         yHead `shouldBeTag` "h2"
         yHead `shouldHaveText` "Y Mark"
 
-    it "finds select elements" $ using Firefox $ do
+    it "finds select elements" $ runWD $ do
         s <- findNg $ ByModel "zzz"
         s `shouldBeTag` "select"
         opt <- findElemFrom s $ ByCSS "option[value=\"Bar\"]"
@@ -46,18 +47,18 @@ ngSpecs = describe "Angular webdriver commands" $ do
         zHead `shouldBeTag` "h3"
         zHead `shouldHaveText` "Z Bar"
 
-    it "finds selected option inside select opt" $ using Firefox $ do
+    it "finds selected option inside select opt" $ runWD $ do
         opt <- findNg $ BySelectedOption "zzz"
         opt `shouldBeTag` "option"
         opt `shouldHaveText` "Bar"
 
-    it "finds model elements of different types" $ using Firefox $ do
+    it "finds model elements of different types" $ runWD $ do
         [i, t, s] <- findNgs $ ByModel "name"
         i `shouldBeTag` "input"
         t `shouldBeTag` "textarea"
         s `shouldBeTag` "select"
 
-    it "finds all repeater rows" $ using Firefox $ do
+    it "finds all repeater rows" $ runWD $ do
         [r1, r2, r3] <- findRepeaters $ ByRows "dog in dogs"
         mapM_ (`shouldBeTag`"li") [r1, r2, r3]
         r1 `shouldHaveText` "Spot mutt"
@@ -67,7 +68,7 @@ ngSpecs = describe "Angular webdriver commands" $ do
         findRepeaters (ByRows "cat in cats") `shouldReturn` []
         findRepeater (ByRows "cat in cats") `shouldThrow` NgException "Selector ByRows \"cat in cats\" returned []"
 
-    it "finds a single repeater row" $ using Firefox $ do
+    it "finds a single repeater row" $ runWD $ do
         r2 <- findRepeater $ ByRow "dog in dogs" 1
         r2 `shouldBeTag` "li"
         r2 `shouldHaveText` "Spike poodle"
@@ -75,7 +76,7 @@ ngSpecs = describe "Angular webdriver commands" $ do
         findRepeaters (ByRow "cat in cats" 1) `shouldReturn` []
         findRepeater (ByRow "cat in cats" 1) `shouldThrow` NgException "Selector ByRow \"cat in cats\" 1 returned []"
 
-    it "finds a repeater column" $ using Firefox $ do
+    it "finds a repeater column" $ runWD $ do
         [c1, c2, c3] <- findRepeaters $ ByColumn "dog in dogs" "{{dog.name}}"
         mapM_ (`shouldBeTag`"span") [c1, c2, c3]
 
@@ -87,7 +88,7 @@ ngSpecs = describe "Angular webdriver commands" $ do
         findRepeater (ByColumn "cat in cats" "{{cat.name}}") `shouldThrow`
             NgException "Selector ByColumn \"cat in cats\" \"{{cat.name}}\" returned []"
 
-    it "finds a repeater by row and column" $ using Firefox $ do
+    it "finds a repeater by row and column" $ runWD $ do
         c2 <- findRepeater $ ByRowAndCol "dog in dogs" 1 "{{dog.breed}}"
         c2 `shouldBeTag` "span"
         c2 `shouldHaveText` "poodle"
@@ -96,21 +97,21 @@ ngSpecs = describe "Angular webdriver commands" $ do
         findRepeater (ByRowAndCol "cat in cats" 22 "{{cat.name}}") `shouldThrow`
             NgException "Selector ByRowAndCol \"cat in cats\" 22 \"{{cat.name}}\" returned []"
 
-    it "evaluates an angular expression" $ using Firefox $ do
+    it "evaluates an angular expression" $ runWD $ do
         e <- findNg $ ByBinding "{{a}}"
         ngEvaluate e "cost | number:2" `shouldReturn` ("12.60" :: String)
 
-    it "loads the location url" $ using Firefox $ do
+    it "loads the location url" $ runWD $ do
         getLocationAbsUrl "body" `shouldReturn` "http://localhost:3456/index.html"
 
-    it "loads {{cost}} from document" $ using Firefox $ do
+    it "loads {{cost}} from document" $ runWD $ do
         [s1, s2] <- findNgs $ ByBinding "{{cost}}"
         s1 `shouldBeTag` "span"
         s2 `shouldBeTag` "span"
         s1 `shouldHaveAttr` ("id", "span-one")
         s2 `shouldHaveAttr` ("id", "span-two")
 
-    it "loads {{cost}} only from one element" $ using Firefox $ do
+    it "loads {{cost}} only from one element" $ runWD $ do
         d <- findElem $ ById "one"
         d `shouldBeTag` "div"
         s1 <- findNgFrom d $ ByBinding "{{cost}}"

@@ -6,16 +6,13 @@ import Control.Exception (bracket)
 import Network.Wai.Application.Static
 import Network.Wai.Handler.Warp (run)
 import Test.Hspec (hspec)
-import Test.Hspec.WebDriver (createSessionManager)
 
 import NgSpecs
-import ManagerSpecs
 
 startServer :: IO ThreadId
 startServer = forkIO $
     run 3456 $ staticApp $ defaultFileServerSettings "test/www"
 
 main :: IO ()
-main = bracket startServer killThread $ \_ -> do
-    createSessionManager 2
-    hspec $ ngSpecs >> mSpecs
+main = bracket startServer killThread $ \_ ->
+    hspec $ ngSpec
