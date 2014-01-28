@@ -3,3 +3,4 @@ syntax:glob
 dist/
 cabal.sandbox.config
 .*.swp
+sandbox/
