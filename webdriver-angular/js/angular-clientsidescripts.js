@@ -26,9 +26,15 @@ THE SOFTWARE.*/
  * executeScript should be put here. These scripts are transmitted over
  * the wire using their toString representation, and cannot reference
  * external variables. They can, however use the array passed in to
- * arguments. Instead of params, all functions on clientSideScripts
- * should list the arguments array they expect.
+ * arguments.
+ *
+ * Some implementations seem to have issues with // comments, so use star-style
+ * inside scripts.
  */
+
+ // jshint browser: true
+ // jshint shadow: true
+ /* global angular */
 var clientSideScripts = exports;
 
 /**
@@ -36,12 +42,12 @@ var clientSideScripts = exports;
  * no outstanding $http calls before continuing.
  *
  * Asynchronous.
- * arguments[0] {string} The selector housing an ng-app
- * arguments[1] {function} callback
+ *
+ * @param {string} selector The selector housing an ng-app
+ * @param {function} callback callback
  */
-clientSideScripts.waitForAngular = function() {
-  var el = document.querySelector(arguments[0]);
-  var callback = arguments[1];
+clientSideScripts.waitForAngular = function(selector, callback) {
+  var el = document.querySelector(selector);
   try {
     angular.element(el).injector().get('$browser').
         notifyWhenNoOutstandingRequests(callback);
@@ -53,14 +59,13 @@ clientSideScripts.waitForAngular = function() {
 /**
  * Find a list of elements in the page by their angular binding.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The binding, e.g. {{cat.name}}.
+ * @param {string} binding The binding, e.g. {{cat.name}}.
+ * @param {Element} using The scope of the search.
  *
- * @return {Array.<WebElement>} The elements containing the binding.
+ * @return {Array.<Element>} The elements containing the binding.
  */
-clientSideScripts.findBindings = function() {
-  var using = arguments[0] || document;
-  var binding = arguments[1];
+clientSideScripts.findBindings = function(binding, using) {
+  using = using || document;
   var bindings = using.getElementsByClassName('ng-binding');
   var matches = [];
   for (var i = 0; i < bindings.length; ++i) {
@@ -72,7 +77,7 @@ clientSideScripts.findBindings = function() {
       }
     }
   }
-  return matches; // Return the whole array for webdriver.findElements.
+  return matches; /* Return the whole array for webdriver.findElements. */
 };
 
 /**
@@ -80,17 +85,15 @@ clientSideScripts.findBindings = function() {
  * Always returns an array of only one element for plain old ng-repeat.
  * Returns an array of all the elements in one segment for ng-repeat-start.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The text of the repeater, e.g. 'cat in cats'.
- * arguments[2] {number} The row index.
+ * @param {string} repeater The text of the repeater, e.g. 'cat in cats'.
+ * @param {number} index The row index.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} The row of the repeater, or an array of elements
  *     in the first row in the case of ng-repeat-start.
  */
- clientSideScripts.findRepeaterRows = function() {
-  var using = arguments[0] || document;
-  var repeater = arguments[1];
-  var index = arguments[2];
+ clientSideScripts.findRepeaterRows = function(repeater, index, using) {
+  using = using || document;
 
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
   var rows = [];
@@ -104,8 +107,8 @@ clientSideScripts.findBindings = function() {
       }
     }
   }
-  // multiRows is an array of arrays, where each inner array contains
-  // one row of elements.
+  /* multiRows is an array of arrays, where each inner array contains
+     one row of elements. */
   var multiRows = [];
   for (var p = 0; p < prefixes.length; ++p) {
     var attr = prefixes[p] + 'repeat-start';
@@ -132,14 +135,13 @@ clientSideScripts.findBindings = function() {
  /**
  * Find all rows of an ng-repeat.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The text of the repeater, e.g. 'cat in cats'.
+ * @param {string} repeater The text of the repeater, e.g. 'cat in cats'.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} All rows of the repeater.
  */
- clientSideScripts.findAllRepeaterRows = function() {
-  var using = arguments[0] || document;
-  var repeater = arguments[1];
+ clientSideScripts.findAllRepeaterRows = function(repeater, using) {
+  using = using || document;
 
   var rows = [];
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
@@ -160,7 +162,6 @@ clientSideScripts.findBindings = function() {
     for (var i = 0; i < repeatElems.length; ++i) {
       if (repeatElems[i].getAttribute(attr).indexOf(repeater) != -1) {
         var elem = repeatElems[i];
-        var row = [];
         while (elem.nodeType != 8 ||
             elem.nodeValue.indexOf(repeater) == -1) {
           rows.push(elem);
@@ -175,19 +176,16 @@ clientSideScripts.findBindings = function() {
 /**
  * Find an element within an ng-repeat by its row and column.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The text of the repeater, e.g. 'cat in cats'.
- * arguments[2] {number} The row index.
- * arguments[3] {string} The column binding, e.g. '{{cat.name}}'.
+ * @param {string} repeater The text of the repeater, e.g. 'cat in cats'.
+ * @param {number} index The row index.
+ * @param {string} binding The column binding, e.g. '{{cat.name}}'.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} The element in an array.
  */
-clientSideScripts.findRepeaterElement = function() {
+clientSideScripts.findRepeaterElement = function(repeater, index, binding, using) {
   var matches = [];
-  var using = arguments[0] || document;
-  var repeater = arguments[1];
-  var index = arguments[2];
-  var binding = arguments[3];
+  using = using || document;
 
   var rows = [];
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
@@ -201,8 +199,8 @@ clientSideScripts.findRepeaterElement = function() {
       }
     }
   }
-  // multiRows is an array of arrays, where each inner array contains
-  // one row of elements.
+  /* multiRows is an array of arrays, where each inner array contains
+     one row of elements. */
   var multiRows = [];
   for (var p = 0; p < prefixes.length; ++p) {
     var attr = prefixes[p] + 'repeat-start';
@@ -237,7 +235,7 @@ clientSideScripts.findRepeaterElement = function() {
   }
   if (multiRow) {
     for (var i = 0; i < multiRow.length; ++i) {
-      rowElem = multiRow[i];
+      var rowElem = multiRow[i];
       if (rowElem.className.indexOf('ng-binding') != -1) {
         bindings.push(rowElem);
       }
@@ -262,17 +260,15 @@ clientSideScripts.findRepeaterElement = function() {
 /**
  * Find the elements in a column of an ng-repeat.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The text of the repeater, e.g. 'cat in cats'.
- * arguments[2] {string} The column binding, e.g. '{{cat.name}}'.
+ * @param {string} repeater The text of the repeater, e.g. 'cat in cats'.
+ * @param {string} binding The column binding, e.g. '{{cat.name}}'.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} The elements in the column.
  */
-clientSideScripts.findRepeaterColumn = function() {
+clientSideScripts.findRepeaterColumn = function(repeater, binding, using) {
   var matches = [];
-  var using = arguments[0] || document;
-  var repeater = arguments[1];
-  var binding = arguments[2];
+  using = using || document;
 
   var rows = [];
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
@@ -286,8 +282,8 @@ clientSideScripts.findRepeaterColumn = function() {
       }
     }
   }
-  // multiRows is an array of arrays, where each inner array contains
-  // one row of elements.
+  /* multiRows is an array of arrays, where each inner array contains
+     one row of elements. */
   var multiRows = [];
   for (var p = 0; p < prefixes.length; ++p) {
     var attr = prefixes[p] + 'repeat-start';
@@ -346,14 +342,13 @@ clientSideScripts.findRepeaterColumn = function() {
  * Find an input elements by model name.
  * DEPRECATED - use findByModel
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The model name.
+ * @param {string} model The model name.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} The matching input elements.
  */
-clientSideScripts.findInputs = function() {
-  var using = arguments[0] || document;
-  var model = arguments[1];
+clientSideScripts.findInputs = function(model, using) {
+  using = using || document;
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
   for (var p = 0; p < prefixes.length; ++p) {
     var selector = 'input[' + prefixes[p] + 'model="' + model + '"]';
@@ -365,16 +360,15 @@ clientSideScripts.findInputs = function() {
 };
 
 /**
- * Find a elements by model name.
+ * Find elements by model name.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The model name.
+ * @param {string} model The model name.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} The matching elements.
  */
-clientSideScripts.findByModel = function() {
-  var using = arguments[0] || document;
-  var model = arguments[1];
+clientSideScripts.findByModel = function(model, using) {
+  using = using || document;
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
   for (var p = 0; p < prefixes.length; ++p) {
     var selector = '[' + prefixes[p] + 'model="' + model + '"]';
@@ -386,16 +380,72 @@ clientSideScripts.findByModel = function() {
 };
 
 /**
+ * Find buttons by textual content.
+ *
+ * @param {string} searchText The exact text to match.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
+ *
+ * @return {Array.<Element>} The matching elements.
+ */
+clientSideScripts.findByButtonText = function(searchText, using) {
+  using = using || document;
+  var elements = using.querySelectorAll('button, input[type="button"], input[type="submit"]');
+  var matches = [];
+  for (var i = 0; i < elements.length; ++i) {
+    var element = elements[i];
+    var elementText;
+    if (element.tagName.toLowerCase() == 'button') {
+      elementText = element.innerText || element.textContent;
+    } else {
+      elementText = element.value;
+    }
+    if (elementText === searchText) {
+      matches.push(element);
+    }
+  }
+
+  return matches;
+};
+
+/**
+ * Find buttons by textual content.
+ *
+ * @param {string} searchText The exact text to match.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
+ *
+ * @return {Array.<Element>} The matching elements.
+ */
+clientSideScripts.findByPartialButtonText = function(searchText, using) {
+  using = using || document;
+  var elements = using.querySelectorAll('button, input[type="button"], input[type="submit"]');
+  var matches = [];
+  for (var i = 0; i < elements.length; ++i) {
+    var element = elements[i];
+    var elementText;
+    if (element.tagName.toLowerCase() == 'button') {
+      elementText = element.innerText || element.textContent;
+    } else {
+      elementText = element.value;
+    }
+    if (elementText.indexOf(searchText) > -1) {
+      matches.push(element);
+    }
+  }
+
+  return matches;
+};
+
+
+/**
  * Find multiple select elements by model name.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The model name.
+ * @param {string} model The model name.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} The matching select elements.
  */
-clientSideScripts.findSelects = function() {
-  var using = arguments[0] || document;
-  var model = arguments[1];
+clientSideScripts.findSelects = function(model, using) {
+  using = using || document;
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
   for (var p = 0; p < prefixes.length; ++p) {
     var selector = 'select[' + prefixes[p] + 'model="' + model + '"]';
@@ -409,14 +459,13 @@ clientSideScripts.findSelects = function() {
 /**
  * Find selected option elements by model name.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {string} The model name.
+ * @param {string} model The model name.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} The matching select elements.
 */
-clientSideScripts.findSelectedOptions = function() {
-  var using = arguments[0] || document;
-  var model = arguments[1];
+clientSideScripts.findSelectedOptions = function(model, using) {
+  using = using || document;
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
   for (var p = 0; p < prefixes.length; ++p) {
     var selector = 'select[' + prefixes[p] + 'model="' + model + '"] option:checked';
@@ -430,14 +479,13 @@ clientSideScripts.findSelectedOptions = function() {
 /**
  * Find textarea elements by model name.
  *
- * arguments[0] {Element} The scope of the search.
- * arguments[1] {String} The model name.
+ * @param {String} model The model name.
+ * @param {Element} using The scope of the search.  Defaults to 'document'.
  *
  * @return {Array.<Element>} An array of matching textarea elements.
 */
-clientSideScripts.findTextareas = function() {
-  var using = arguments[0] || document;
-  var model = arguments[1];
+clientSideScripts.findTextareas = function(model, using) {
+  using = using || document;
 
   var prefixes = ['ng-', 'ng_', 'data-ng-', 'x-ng-', 'ng\\:'];
   for (var p = 0; p < prefixes.length; ++p) {
@@ -450,16 +498,43 @@ clientSideScripts.findTextareas = function() {
 };
 
 /**
+ * Find elements by css selector and textual content.
+ *
+ * @param {string} cssSelector The css selector to match.
+ * @param {string} searchText The exact text to match.
+ * @param {Element} using The scope of the search. Defaults to 'document'.
+ *
+ * @return {Array.<Element>} An array of matching elements.
+ */
+clientSideScripts.findByCssContainingText = function(cssSelector, searchText, using) {
+  var using = using || document;
+  var elements = using.querySelectorAll(cssSelector);
+  var matches = [];
+  for (var i = 0; i < elements.length; ++i) {
+    var element = elements[i];
+    var elementText = element.innerText || element.textContent;
+    if (elementText.indexOf(searchText) > -1) {
+      matches.push(element);
+    }
+  }
+  return matches;
+};
+
+/**
  * Tests whether the angular global variable is present on a page. Retries
  * in case the page is just loading slowly.
  *
  * Asynchronous.
- * arguments[0] {number} Number of times to retry.
- * arguments[1] {function} callback
+ *
+ * @param {number} attempts Number of times to retry.
+ * @param {function} asyncCallback callback
  */
-clientSideScripts.testForAngular = function() {
-  var attempts = arguments[0];
-  var callback = arguments[arguments.length - 1];
+clientSideScripts.testForAngular = function(attempts, asyncCallback) {
+  var callback = function(args) {
+    setTimeout(function() {
+      asyncCallback(args);
+    }, 0);
+  };
   var check = function(n) {
     try {
       if (window.angular && window.angular.resumeBootstrap) {
@@ -471,7 +546,7 @@ clientSideScripts.testForAngular = function() {
           callback([false, 'retries looking for angular exceeded']);
         }
       } else {
-        window.setTimeout(function() {check(n - 1)}, 1000);
+        window.setTimeout(function() {check(n - 1);}, 1000);
       }
     } catch (e) {
       callback([false, e]);
@@ -483,14 +558,12 @@ clientSideScripts.testForAngular = function() {
 /**
  * Evalute an Angular expression in the context of a given element.
  *
- * arguments[0] {Element} The element in whose scope to evaluate.
- * arguments[1] {string} The expression to evaluate.
+ * @param {Element} element The element in whose scope to evaluate.
+ * @param {string} expression The expression to evaluate.
  *
  * @return {?Object} The result of the evaluation.
  */
-clientSideScripts.evaluate = function() {
-  var element = arguments[0];
-  var expression = arguments[1];
+clientSideScripts.evaluate = function(element, expression) {
 
   return angular.element(element).scope().$eval(expression);
 };
@@ -498,9 +571,28 @@ clientSideScripts.evaluate = function() {
 /**
  * Return the current url using $location.absUrl().
  *
- * arguments[0] {string} The selector housing an ng-app
+ * @param {string} selector The selector housing an ng-app
  */
-clientSideScripts.getLocationAbsUrl = function() {
-  var el = document.querySelector(arguments[0]);
+clientSideScripts.getLocationAbsUrl = function(selector) {
+  var el = document.querySelector(selector);
   return angular.element(el).injector().get('$location').absUrl();
+};
+
+/**
+ * Browse to another page using in-page navigation.
+ *
+ * @param {string} selector The selector housing an ng-app
+ * @param {string} url In page URL using the same syntax as $location.url(),
+ *     /path?search=a&b=c#hash
+ */
+clientSideScripts.setLocation = function(selector, url) {
+  var el = document.querySelector(selector);
+  var $injector = angular.element(el).injector();
+  var $location = $injector.get('$location');
+  var $rootScope = $injector.get('$rootScope');
+
+  if (url !== $location.url()) {
+    $location.url(url);
+    $rootScope.$digest();
+  }
 };
