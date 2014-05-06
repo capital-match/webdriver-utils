@@ -1,5 +1,5 @@
 name:              webdriver-angular
-version:           0.1.3
+version:           0.1.4
 cabal-version:     >= 1.8
 build-type:        Simple
 synopsis:          Webdriver actions to assist with testing a webpage which uses Angular.Js
