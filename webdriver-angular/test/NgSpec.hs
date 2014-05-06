@@ -117,3 +117,7 @@ ngSpec = session "Angular webdriver commands" $ using Firefox $ do
         s1 <- findNgFrom d $ ByBinding "{{cost}}"
         s1 `shouldBeTag` "span"
         s1 `shouldHaveAttr` ("id", "span-one")
+
+    it "sets the location" $ runWD $ do
+        setNgLocation "body" "foo"
+        getLocationAbsUrl "body" `shouldReturn` "http://localhost:3456/index.html#/foo"

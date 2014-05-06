@@ -23,6 +23,7 @@ module Test.WebDriver.Commands.Angular (
     -- * Misc
     , ngEvaluate
     , getLocationAbsUrl
+    , setNgLocation
     ) where
 
 import Control.Applicative ((<$>))
@@ -164,3 +165,15 @@ ngEvaluate e expr = execCS "evaluate" [JSArg e, JSArg expr]
 getLocationAbsUrl :: WebDriver wd => T.Text -- ^ CSS selector to element which has ng-app
                                   -> wd T.Text
 getLocationAbsUrl sel = execCS "getLocationAbsUrl" [JSArg sel]
+
+-- | Browse to another page using in-page navigation (via @$location.url@).
+setNgLocation :: (MonadIO wd, WebDriver wd)
+              => T.Text -- ^ CSS selector to the element which has ng-app
+              -> T.Text -- ^ URL
+              -> wd ()
+setNgLocation sel url = do
+    x <- execCS "setLocation" [JSArg sel, JSArg url]
+    case x of
+        A.Null -> return ()
+        _ -> liftIO $ throwIO $ NgException $ "Error setting location: " ++ show x
+
