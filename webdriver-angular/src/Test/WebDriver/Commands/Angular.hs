@@ -125,9 +125,9 @@ findNgsFrom :: WebDriver wd => Element -> NgSelector -> wd [Element]
 findNgsFrom e = findNg' $ JSArg e
 
 findNg' :: WebDriver wd => JSArg -> NgSelector -> wd [Element]
-findNg' e (ByBinding name) = execElems "findBindings" [e, JSArg name]
-findNg' e (ByModel name) = execElems "findByModel" [e, JSArg name]
-findNg' e (BySelectedOption name) = execElems "findSelectedOptions" [e, JSArg name]
+findNg' e (ByBinding name) = execElems "findBindings" [JSArg name, e]
+findNg' e (ByModel name) = execElems "findByModel" [JSArg name, e]
+findNg' e (BySelectedOption name) = execElems "findSelectedOptions" [JSArg name, e]
 
 -- | Find an element from the document which matches the Angular repeater.  If zero or more than one
 -- element are returned, an exception of type 'NgException' is thrown.
@@ -148,10 +148,10 @@ findRepeatersFrom :: WebDriver wd => Element -> NgRepeater -> wd [Element]
 findRepeatersFrom e = findRepeater' $ JSArg e
 
 findRepeater' :: WebDriver wd => JSArg -> NgRepeater -> wd [Element]
-findRepeater' e (ByRows rep) = execElems "findAllRepeaterRows" [e, JSArg rep]
-findRepeater' e (ByRow rep idx) = execElems "findRepeaterRows" [e, JSArg rep, JSArg idx]
-findRepeater' e (ByColumn rep idx) = execElems "findRepeaterColumn" [e, JSArg rep, JSArg idx]
-findRepeater' e (ByRowAndCol rep row col) = execElems "findRepeaterElement" [e, JSArg rep, JSArg row, JSArg col]
+findRepeater' e (ByRows rep) = execElems "findAllRepeaterRows" [JSArg rep, e]
+findRepeater' e (ByRow rep idx) = execElems "findRepeaterRows" [JSArg rep, JSArg idx, e]
+findRepeater' e (ByColumn rep idx) = execElems "findRepeaterColumn" [JSArg rep, JSArg idx, e]
+findRepeater' e (ByRowAndCol rep row col) = execElems "findRepeaterElement" [JSArg rep, JSArg row, JSArg col, e]
 
 -- | Evaluate an angular expression, using the scope attached to the given element.
 ngEvaluate :: (WebDriver wd, A.FromJSON a) 

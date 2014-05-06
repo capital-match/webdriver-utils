@@ -5,6 +5,7 @@ module Test.WebDriver.Commands.Internal
 
 import Control.Applicative
 import Data.Maybe (catMaybes)
+import Data.Monoid ((<>))
 import Language.JavaScript.Parser (JSNode(..), Node(..))
 import qualified Data.HashMap.Lazy as M
 import qualified Data.Text as T
@@ -16,6 +17,13 @@ parseClientTop :: JSNode -> [(T.Text,T.Text)]
 parseClientTop (NN (JSSourceElementsTop es)) = catMaybes $ map parseClientDef es
 parseClientTop _ = []
 
+-- | Build a function body that can be passed to async.  The body must use
+-- arguments array but the code from clientSideScripts.js uses function arguments.
+buildFunction :: Node -> T.Text
+buildFunction func = "return (" <> T.pack func' <> ").apply(null, arguments);"
+    where
+        func' = dropWhile (=='\n') $ JS.renderToString $ NN func
+
 -- | Parse a call clientSideScripts.somefunction = function() {...}, returning the function name
 -- and the body.
 parseClientDef :: JSNode -> Maybe (T.Text, T.Text)
@@ -25,9 +33,9 @@ parseClientDef (NN (JSExpression
                             _ -- literal .
                             (NT (JSIdentifier name) _ _))
                         , NN (JSOperator (NT (JSLiteral "=") _ _))
-                        , NN (JSFunctionExpression _ _ _ _ _ (NN (JSBlock _ body _)))
+                        , NN (func@(JSFunctionExpression _ _ _ _ _ _))
                         ]))
-    = Just (T.pack name, T.pack $ dropWhile (=='\n') $ JS.renderToString $ NN $ JSSourceElementsTop body)
+    = Just (T.pack name, buildFunction func)
                         -- Use renderToString instead of renderJS so we don't need to depend on builder
 parseClientDef _ = Nothing
 
