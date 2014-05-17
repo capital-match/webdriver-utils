@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TupleSections #-}
 -- | Write hspec tests that are webdriver tests, automatically managing the webdriver sessions.
 --
 -- This module re-exports functions from "Test.Hspec" and "Test.WebDriver.Commands" and it is
@@ -35,11 +36,15 @@
 module Test.Hspec.WebDriver(
   -- * Webdriver
     BrowserDefaults(..)
+  , WdExample(..)
+  , runWD
+  , pending
+  , pendingWith
+  , example
   , session
   , sessionOn
-  , runWD
-  , WDExample
   , Using(..)
+  , WdTestSession
 
   -- * Expectations
   , shouldBe
@@ -55,38 +60,37 @@ module Test.Hspec.WebDriver(
   -- * Re-exports from "Test.Hspec"
   , hspec
   , Spec
+  , SpecWith
   , describe
   , it
   , context
   , parallel
-  , pending
-  , pendingWith
 
   -- * Re-exports from "Test.WebDriver"
   , WD
-  , liftIO
   , module Test.WebDriver.Commands
 ) where
 
-import Control.Exception.Lifted (try, Exception, onException, throwIO, catch)
-import Control.Monad (when)
+import Control.Applicative
+import Control.Concurrent.MVar
+import Control.Exception.Lifted (try, Exception, onException)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.State (state, evalState, execState)
 import Data.IORef
-import Data.Typeable (Typeable)
+import Data.Traversable (traverse)
 import Data.Word (Word16)
+import System.IO.Unsafe (unsafePerformIO)
 import Test.HUnit (assertEqual, assertFailure)
 import qualified Data.Text as T
 
-import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow)
-import Test.Hspec.Core (Result(..), Item(..), mapSpecItem)
+import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pending, pendingWith, example)
+import Test.Hspec.Core (Result(..), Item(..), Example(..), SpecTree(..), fromSpecList, runSpecM)
 import qualified Test.Hspec as H
 
 import Test.WebDriver (WD)
 import Test.WebDriver.Commands
 import qualified Test.WebDriver as W
 import qualified Test.WebDriver.Classes as W
-
-import qualified Test.Hspec.WebDriver.Internal as I
 
 -- | Webdriver expectations consist of a set of browser 'W.Capabilities' to use and the actual test as
 -- a 'WD' monad.  The browser capabilities are specified by an enumeration which is an instance of
@@ -125,40 +129,81 @@ instance TestCapabilities BrowserDefaults where
     newCaps IPad = return $ W.defaultCaps { W.browser = W.iPad }
     newCaps Android = return $ W.defaultCaps { W.browser = W.android }
 
--- | Combine the examples nested inside this call into a webdriver session.  For each capability in
--- the list, before the first example is executed, a new webdriver session is created using the
--- capabilities.  The examples are then executed in depth-first order using this webdriver session
--- (so later examples can rely on the browser state created by earlier examples).  Once the final
--- example has executed, the session is closed.  If some 'WDExample' fails (throws an exception),
--- all remaining examples in the session will become pending.
+-- | Internal state for a webdriver test session.
+data WdTestSession = WdTestSession {
+    wdTestOpen :: IO (W.WDSession, Bool)
+        -- ^ action to obtain the session.  The boolean is True if a previous example has an error.
+  , wdTestClose :: (W.WDSession, Bool) -> IO ()
+        -- ^ once the test is done with the session, it should pass the new session on to the close method.
+        -- Again the boolean is True if either a previous or this example has an error.
+}
+
+-- | A webdriver example.
+--
+-- The webdriver action of type @'WD' ()@ should consist only of commands interacting with web
+-- pages.  A webdriver session is threaded through multiple examples so a sequence of examples can
+-- combine to create a spec for a single page or interaction.  For this to happen, every webdriver
+-- example must be located within a call to 'session' or 'sessionOn' and this is enforced by the
+-- type system.  Indeed, a 'WdExample' produces a @'SpecWith' 'WdTestSession'@ which can only be
+-- converted to 'Spec' using 'session' or 'sessionOn'.  The reason for 'WdPending' is so that a
+-- pending example can be specified with type @'SpecWith' 'WdTestSession'@ so it can compose with
+-- the other webdriver examples.
+data WdExample = WdExample (WD ())
+               | WdPending (Maybe String)
+
+-- | A shorthand for constructing a 'WdExample' from a webdriver action.
+runWD :: WD () -> WdExample
+runWD = WdExample
+
+-- | A pending example.
+pending :: WdExample
+pending = WdPending Nothing
+
+-- | A pending example with a message.
+pendingWith :: String -> WdExample
+pendingWith = WdPending . Just
+
+-- | A version of 'H.example' which lifts an @IO ()@ to a webdriver example (so it can be composed
+-- with other webdriver examples).
+example :: Expectation -> WdExample
+example = WdExample . liftIO
+
+-- | Combine the examples nested inside this call into a webdriver session.  All the examples are
+-- run once for each capability in the list. Before the first example is executed, a new webdriver
+-- session is automatically created using the capabilities.  The examples are then executed in
+-- depth-first order using this webdriver session (so later examples can rely on the browser state
+-- created by earlier examples).  Once the final example has executed, the session is automatically
+-- closed.  If some example fails (throws an exception), all remaining examples in the session will
+-- become pending.
 --
 -- Note that when using 'parallel', the examples within a single session will still execute
 -- serially.  Different sessions (including the multiple sessions created if more than one
 -- capability is passed to 'session') will be executed in parallel.
 --
--- This function uses the default webdriver host (127.0.0.1), port (4444), and
--- basepath (@\/wd\/hub@).
-session :: TestCapabilities cap => String -> ([cap], Spec) -> Spec
-session = hSessionWd W.defaultSession
+-- This function uses the default webdriver host (127.0.0.1), port (4444), and basepath
+-- (@\/wd\/hub@).
+session :: TestCapabilities cap => String -> ([cap], SpecWith WdTestSession) -> Spec
+session = procTestsWithCaps W.defaultSession
 
 -- | A variation of 'session' which allows you to specify the webdriver host, port, and basepath.
 sessionOn :: TestCapabilities cap
-          => String -- ^ host
-          -> Word16 -- ^ port
-          -> String -- ^ base path
+          => String -- ^ webdriver host
+          -> Word16 -- ^ webdriver port
+          -> String -- ^ webdriver base path
           -> String -- ^ message
-          -> ([cap], Spec)
+          -> ([cap], SpecWith WdTestSession)
           -> Spec
-sessionOn host port bp = hSessionWd W.WDSession { W.wdHost = host
+sessionOn host port bp = procTestsWithCaps W.WDSession { W.wdHost = host
                                                 , W.wdPort = port
                                                 , W.wdBasePath = bp
                                                 , W.wdSessId = Nothing
                                                 , W.lastHTTPRequest = Nothing
                                                 }
 
--- | A typeclass of things which can be converted to a list of capabilities.  It's primary purpose
--- is to allow the word @using@ to be used with 'session' so that the session description reads like
--- a sentance.
+-- | A typeclass of things which can be converted to a pair @([cap], SpecWith WdTestSession)@ to
+-- pass to 'session' or 'sessionOn'.  It's primary purpose is to allow the word @using@ to be used
+-- with 'session' so that the session description reads like a sentance, and for the word @using@ to
+-- take either a single capability or a list of capabilities.
 --
 -- >session "for the home page" $ using Firefox $ do
 -- >    it "loads the page" $ runWD $ do
@@ -169,7 +214,7 @@ sessionOn host port bp = hSessionWd W.WDSession { W.wdHost = host
 -- >    ...
 class Using a where
     type UsingList a
-    using :: a -> Spec -> (UsingList a, Spec)
+    using :: a -> SpecWith WdTestSession -> (UsingList a, SpecWith WdTestSession)
 
 instance Using BrowserDefaults where
     type UsingList BrowserDefaults = [BrowserDefaults]
@@ -218,56 +263,90 @@ shouldThrow w expected = do
 -- Internal Test Runner
 --------------------------------------------------------------------------------
 
--- | State passed between examples
-data WdState = WdState {
-   stSession :: W.WDSession -- ^ the webdriver session
- , stError :: IORef Bool    -- ^ has an error occured in an earlier example?  We rely on the serialization
-                            --   of examples to ensure that at most one thread is reading/writing this
-                            --   ioref.
-} deriving Typeable
+-- | Create a WdTestSession.  The initial W.WDSession is used only for its host, port, and base
+createTestSession :: TestCapabilities cap
+                  => W.WDSession -> cap -> [MVar (W.WDSession,Bool)] -> Int -> WdTestSession
+createTestSession wdsess cap mvars n = WdTestSession open close
+    where
+        open | n == 0 = (,False) <$> (W.runWD wdsess $ newCaps cap >>= createSession)
+             | otherwise = readMVar (mvars !! n)
 
--- | Used to signal that a previous example had an error
-data PrevHasError = PrevHasError
-    deriving (Show, Typeable)
-instance Exception PrevHasError
+        close (sess,err) | length mvars - 1 == n = W.runWD sess closeSession
+                         | otherwise = putMVar (mvars !! (n + 1)) (sess, err)
 
--- | The initial session is used only for its host, port, and basepath.  A new session is created.
-createSt :: TestCapabilities cap => W.WDSession -> cap -> IO WdState
-createSt sess cap = do
-    err <- newIORef False
-    sess' <- W.runWD sess $ newCaps cap >>= createSession
-    return $ WdState sess' err
+-- | Convert a single test item to a generic item by providing it with the WdTestSession.
+procSpecItem :: TestCapabilities cap
+             => W.WDSession -> cap -> [MVar (W.WDSession, Bool)] -> Int -> Item WdTestSession -> Item ()
+procSpecItem wdsess mvars caps n item = item { itemExample = \p act progress -> itemExample item p (act . act') progress }
+    where
+        act' f () = f (createTestSession wdsess mvars caps n)
 
-closeSt :: WdState -> IO ()
-closeSt st = W.runWD (stSession st) closeSession
+-- | Convert a spec tree of test items to a spec tree of generic items by creating a single session for 
+-- the entire tree.
+procTestSession :: TestCapabilities cap
+                => W.WDSession -> cap -> SpecWith WdTestSession -> Spec
+procTestSession wdsess c s = unsafePerformIO $ do
+    let cnt = countItems s
+    mvars <- sequence $ take cnt $ repeat newEmptyMVar
+    return $ mapWithCounter (procSpecItem wdsess c mvars) s
+{-# NOINLINE procTestSession #-}
 
--- | The 'WDSession' passed in is used for its host, port, and base path.
-hSessionWd :: TestCapabilities cap => W.WDSession -> String -> ([cap], Spec) -> Spec
-hSessionWd sess msg (caps, spec) = spec'
+-- | Convert a list of capabilites and a spec tree of test items to a generic spec tree by creating
+-- one session per capability.  The 'WDSession' passed in is used for its host, port, and base path.
+procTestsWithCaps :: TestCapabilities cap => W.WDSession -> String -> ([cap], SpecWith WdTestSession) -> Spec
+procTestsWithCaps wdsess msg (caps, spec) = spec'
     where
         spec' = case caps of
-                    [] -> it msg $ pendingWith "No capabilities specified"
-                    [c] -> describe (msg ++ " using " ++ show c) $ proc c spec
-                    _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ proc c spec) caps
+                    [] -> it msg $ H.pendingWith "No capabilities specified"
+                    [c] -> describe (msg ++ " using " ++ show c) $ procTestSession wdsess c spec
+                    _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ procTestSession wdsess c spec) caps
 
-        proc cap = mapSpecItem addCatchResult . I.session (createSt sess cap) closeSt
 
-        addCatchResult item = item {
-            itemExample = \p a -> itemExample item p a
-                                    `catch` \PrevHasError -> return $ Pending $ Just "previous example had error" }
+instance Example WdExample where
+    type Arg WdExample = WdTestSession
+    evaluateExample (WdPending msg) _ _ _ = return $ Pending msg
+    evaluateExample (WdExample wd) _ act _ = do
+        prevHadError <- newIORef False
 
--- | An example that can be passed to 'it' containing a webdriver action.  It must be created with
--- 'runWD'.
-newtype WDExample = WdExample (I.SessionExample WdState)
-    deriving Example
+        act $ \testsession -> do
 
--- | Create an example from a 'WD' action.  This /must/ be nested inside a call to 'session' or
--- 'sessionOn'.
-runWD :: WD () -> WDExample
-runWD w = WdExample $ I.SessionExample $ \s -> W.runWD (stSession s) $ do
-    err <- liftIO $ readIORef $ stError s
-    when err $ throwIO PrevHasError
+            (wdsession, err) <- wdTestOpen testsession
 
-    w `onException` liftIO (writeIORef (stError s) True)
-    swd <- W.getSession
-    return s { stSession = swd }
+            if err
+                -- on error, just pass along the session and error
+                then do writeIORef prevHadError True
+                        wdTestClose testsession (wdsession, err)
+
+                -- run the example
+                else W.runWD wdsession $ do
+                    wd `onException` liftIO (wdTestClose testsession (wdsession, True))
+                    wdsession' <- W.getSession
+                    liftIO $ wdTestClose testsession (wdsession', False)
+
+
+
+        merr <- readIORef prevHadError
+        if merr then return (Pending $ Just "Previous example had an error") else return Success
+
+
+--------------------------------------------------------------------------------
+--- Utils
+--------------------------------------------------------------------------------
+
+traverseTree :: Applicative f => (Item a -> f (Item b)) -> SpecTree a -> f (SpecTree b)
+traverseTree f (SpecItem msg i) = SpecItem msg <$> f i
+traverseTree f (SpecGroup msg ss) = SpecGroup msg <$> traverse (traverseTree f) ss
+
+traverseSpec :: Applicative f => (Item a -> f (Item b)) -> SpecWith a -> f (SpecWith b)
+traverseSpec f s = fromSpecList <$> traverse (traverseTree f) (runSpecM s)
+
+-- | Process the items in a depth-first walk, passing in the item counter value.
+mapWithCounter :: (Int -> Item a -> Item b) -> SpecWith a -> SpecWith b
+mapWithCounter f s = flip evalState 0 $ traverseSpec go s
+    where
+        go item = state $ \cnt -> (f cnt item, cnt+1)
+
+countItems :: SpecWith a -> Int
+countItems s = flip execState 0 $ traverseSpec go s
+    where
+        go item = state $ \cnt -> (item, cnt+1)
