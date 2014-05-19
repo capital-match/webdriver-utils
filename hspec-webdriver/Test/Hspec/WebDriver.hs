@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TupleSections #-}
 -- | Write hspec tests that are webdriver tests, automatically managing the webdriver sessions.
 --
 -- This module re-exports functions from "Test.Hspec" and "Test.WebDriver.Commands" and it is
@@ -131,11 +130,14 @@ instance TestCapabilities BrowserDefaults where
 
 -- | Internal state for a webdriver test session.
 data WdTestSession = WdTestSession {
-    wdTestOpen :: IO (W.WDSession, Bool)
+    wdTestOpen :: IO (Maybe W.WDSession, Bool)
         -- ^ action to obtain the session.  The boolean is True if a previous example has an error.
-  , wdTestClose :: (W.WDSession, Bool) -> IO ()
-        -- ^ once the test is done with the session, it should pass the new session on to the close method.
-        -- Again the boolean is True if either a previous or this example has an error.
+        -- Note that if a previous example has an error, the session is still passed along since it
+        -- must be eventually closed.  A nothing for the session is only used if the actual session
+        -- open procedure throws an error.
+  , wdTestClose :: (Maybe W.WDSession, Bool) -> IO ()
+        -- ^ once the test is done with the session, it should pass the new session on to the close
+        -- method.  Again the boolean is True if either a previous or this example has an error.
 }
 
 -- | A webdriver example.
@@ -265,18 +267,18 @@ shouldThrow w expected = do
 
 -- | Create a WdTestSession.  The initial W.WDSession is used only for its host, port, and base
 createTestSession :: TestCapabilities cap
-                  => W.WDSession -> cap -> [MVar (W.WDSession,Bool)] -> Int -> WdTestSession
+                  => W.WDSession -> cap -> [MVar (Maybe W.WDSession,Bool)] -> Int -> WdTestSession
 createTestSession wdsess cap mvars n = WdTestSession open close
     where
-        open | n == 0 = (,False) <$> (W.runWD wdsess $ newCaps cap >>= createSession)
-             | otherwise = readMVar (mvars !! n)
+        open | n == 0 = (\s -> (Just s,False)) <$> (W.runWD wdsess $ newCaps cap >>= createSession)
+             | otherwise = takeMVar (mvars !! n)
 
-        close (sess,err) | length mvars - 1 == n = W.runWD sess closeSession
+        close (sess,err) | length mvars - 1 == n = maybe (return ()) (flip W.runWD closeSession) sess
                          | otherwise = putMVar (mvars !! (n + 1)) (sess, err)
 
 -- | Convert a single test item to a generic item by providing it with the WdTestSession.
 procSpecItem :: TestCapabilities cap
-             => W.WDSession -> cap -> [MVar (W.WDSession, Bool)] -> Int -> Item WdTestSession -> Item ()
+             => W.WDSession -> cap -> [MVar (Maybe W.WDSession, Bool)] -> Int -> Item WdTestSession -> Item ()
 procSpecItem wdsess mvars caps n item = item { itemExample = \p act progress -> itemExample item p (act . act') progress }
     where
         act' f () = f (createTestSession wdsess mvars caps n)
@@ -310,20 +312,20 @@ instance Example WdExample where
 
         act $ \testsession -> do
 
-            (wdsession, err) <- wdTestOpen testsession
+            (msess, err) <- wdTestOpen testsession
+                                    `onException` wdTestClose testsession (Nothing, True)
 
-            if err
-                -- on error, just pass along the session and error
-                then do writeIORef prevHadError True
-                        wdTestClose testsession (wdsession, err)
-
-                -- run the example
-                else W.runWD wdsession $ do
-                    wd `onException` liftIO (wdTestClose testsession (wdsession, True))
+            case msess of
+                (Just wdsession) | not err -> W.runWD wdsession $ do
+                    -- run the example
+                    wd `onException` liftIO (wdTestClose testsession (Just wdsession, True))
                     wdsession' <- W.getSession
-                    liftIO $ wdTestClose testsession (wdsession', False)
+                    liftIO $ wdTestClose testsession (Just wdsession', False)
 
-
+                _ -> do
+                    -- on error, just pass along the session and error
+                    writeIORef prevHadError True
+                    wdTestClose testsession (msess, err)
 
         merr <- readIORef prevHadError
         if merr then return (Pending $ Just "Previous example had an error") else return Success
