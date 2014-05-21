@@ -142,12 +142,19 @@ data WdTestSession = WdTestSession {
 
 -- | A webdriver example.
 --
--- The webdriver action of type @'WD' ()@ should consist only of commands interacting with web
--- pages.  A webdriver session is threaded through multiple examples so a sequence of examples can
--- combine to create a spec for a single page or interaction.  For this to happen, every webdriver
--- example must be located within a call to 'session' or 'sessionOn' and this is enforced by the
--- type system.  Indeed, a 'WdExample' produces a @'SpecWith' 'WdTestSession'@ which can only be
--- converted to 'Spec' using 'session' or 'sessionOn'.  The reason for 'WdPending' is so that a
+-- The webdriver action of type @'WD' ()@ should interact with the webpage using commands from
+-- "Test.WebDriver.Commands" (which is re-exported from this module) and then use the <#g:2 expectations>
+-- in this module.  It is possible to split up the spec of a single page into multiple
+-- examples where later examples start with the web browser state from the end of the previous
+-- example.  This is helpful to keep each individual example small and allows the entire spec to be
+-- described at the beginning with pending examples.  
+--
+-- The way this works is that you combine examples into a session using 'session' or 'sessionOn'.  A
+-- webdriver session is then threaded through all examples in a session so that a later example in
+-- the session can rely on the webbrowser state as set up by the previous example.  The type system
+-- enforces that every webdriver example must be located within a call to 'session' or 'sessionOn'.
+-- Indeed, a 'WdExample' produces a @'SpecWith' 'WdTestSession'@ which can only be converted to
+-- 'Spec' using 'session' or 'sessionOn'.  The reason for the 'WdPending' constructor is so that a
 -- pending example can be specified with type @'SpecWith' 'WdTestSession'@ so it can compose with
 -- the other webdriver examples.
 data WdExample = WdExample (WD ())
