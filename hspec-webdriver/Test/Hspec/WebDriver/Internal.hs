@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, RankNTypes, FlexibleContexts, ScopedTypeVariables  #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, RankNTypes, FlexibleContexts, ScopedTypeVariables  #-}
 module Test.Hspec.WebDriver.Internal (
   -- * State Sessions
     session
@@ -11,16 +11,26 @@ import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Monad.Trans.State (state, evalState, execState, execStateT, StateT)
 import Data.Traversable (traverse)
-import Data.Typeable (Typeable(..), cast)
+import Data.Typeable (Typeable, cast)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Hspec
+#if MIN_VERSION_hspec(1,10,0)
+import Test.Hspec.Core hiding (describe, it)
+#else
 import Test.Hspec.Core hiding (describe, it, hspec)
+#endif
 
 import qualified Control.Exception as E
 
+#if MIN_VERSION_hspec(1,10,0)
+traverseTree :: Applicative f => (Item -> f Item) -> SpecTree -> f SpecTree
+traverseTree f (SpecItem msg i) = SpecItem msg <$> f i
+traverseTree f (SpecGroup msg ss) = SpecGroup msg <$> traverse (traverseTree f) ss
+#else
 traverseTree :: Applicative f => (Item -> f Item) -> SpecTree -> f SpecTree
 traverseTree f (SpecItem i) = SpecItem <$> f i
 traverseTree f (SpecGroup msg ss) = SpecGroup msg <$> traverse (traverseTree f) ss
+#endif
 
 traverseSpec :: Applicative f => (Item -> f Item) -> Spec -> f Spec
 traverseSpec f s = fromSpecList <$> traverse (traverseTree f) (runSpecM s)
@@ -49,7 +59,11 @@ instance Typeable a => E.Exception (SessionTest a)
 -- to 'session' or the types @s@ do not match, the example will fail.
 data SessionExample s = SessionExample (s -> IO s)
 instance Typeable a => Example (SessionExample a) where
+#if MIN_VERSION_hspec(1,10,0)
+    evaluateExample (SessionExample f) _ act _ = E.throwIO $ SessionTest act f
+#else
     evaluateExample (SessionExample f) _ act = E.throwIO $ SessionTest act f
+#endif
 
 data Session a = Session {
     sessionCount :: Int
@@ -59,7 +73,12 @@ data Session a = Session {
 }
 
 sessionItem :: Typeable a => Session a -> Int -> Item -> Item
-sessionItem sess i item = item { itemExample = \p a -> runTest $ itemExample item p a }
+sessionItem sess i item =
+#if MIN_VERSION_hspec(1,10,0)
+        item { itemExample = \p a prog -> runTest $ itemExample item p a prog }
+#else
+        item { itemExample = \p a -> runTest $ itemExample item p a }
+#endif
     where
         open | i == 0 = E.try $ sessionCreate sess
              | otherwise = takeMVar $ sessionMVars sess !! i

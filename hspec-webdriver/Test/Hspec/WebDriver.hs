@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP, OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, GeneralizedNewtypeDeriving #-}
 -- | Write hspec tests that are webdriver tests, automatically managing the webdriver sessions.
 --
 -- This module re-exports functions from "Test.Hspec" and "Test.WebDriver.Commands" and it is
@@ -253,7 +253,11 @@ hSessionWd sess msg (caps, spec) = spec'
         proc cap = mapSpecItem addCatchResult . I.session (createSt sess cap) closeSt
 
         addCatchResult item = item {
+#if MIN_VERSION_hspec(1,10,0)
+            itemExample = \p a prog -> itemExample item p a prog
+#else
             itemExample = \p a -> itemExample item p a
+#endif
                                     `catch` \PrevHasError -> return $ Pending $ Just "previous example had error" }
 
 -- | An example that can be passed to 'it' containing a webdriver action.  It must be created with
