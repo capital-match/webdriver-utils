@@ -71,6 +71,7 @@ module Test.Hspec.WebDriver(
 import Control.Exception.Lifted (try, Exception, onException, throwIO, catch)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
+import Data.Default (def)
 import Data.IORef
 import Data.Typeable (Typeable)
 import Data.Word (Word16)
@@ -149,12 +150,10 @@ sessionOn :: TestCapabilities cap
           -> String -- ^ message
           -> ([cap], Spec)
           -> Spec
-sessionOn host port bp = hSessionWd W.WDSession { W.wdHost = host
-                                                , W.wdPort = port
-                                                , W.wdBasePath = bp
-                                                , W.wdSessId = Nothing
-                                                , W.lastHTTPRequest = Nothing
-                                                }
+sessionOn host port bp = hSessionWd def { W.wdHost = host
+                                        , W.wdPort = port
+                                        , W.wdBasePath = bp
+                                        }
 
 -- | A typeclass of things which can be converted to a list of capabilities.  It's primary purpose
 -- is to allow the word @using@ to be used with 'session' so that the session description reads like
