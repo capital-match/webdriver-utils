@@ -44,6 +44,7 @@ module Test.Hspec.WebDriver(
   , sessionOn
   , Using(..)
   , WdTestSession
+  , inspectSession
 
   -- * Expectations
   , shouldBe
@@ -233,6 +234,22 @@ instance Using [BrowserDefaults] where
     type UsingList [BrowserDefaults] = [BrowserDefaults]
     using d s = (d, s)
 
+data AbortSession = AbortSession
+    deriving (Show, Typeable)
+instance Exception AbortSession
+
+-- | Abort the session without closing the session.
+--
+-- Normally, 'session' will automatically close the session either when the tests complete without
+-- error or when any of the tests within the session throws an error.  When developing the test
+-- suite, this can be annoying since closing the session causes the browser window to close.
+-- Therefore, while developing the test suite, you can insert a call to 'inspectSession'.  This will
+-- immedietly halt the session (all later tests will fail) but will not close the session so that
+-- the browser window stays open.
+inspectSession :: WD ()
+inspectSession = throwIO AbortSession
+
+
 -- | 'H.shouldBe' lifted into the 'WD' monad.
 shouldBe :: (Show a, Eq a) => a -> a -> WD ()
 x `shouldBe` y = liftIO $ x `H.shouldBe` y
@@ -325,9 +342,19 @@ instance Example WdExample where
             case msess of
                 (Just wdsession) | not err -> W.runWD wdsession $ do
                     -- run the example
-                    wd `onException` liftIO (wdTestClose testsession (Just wdsession, True))
-                    wdsession' <- W.getSession
-                    liftIO $ wdTestClose testsession (Just wdsession', False)
+                    macterr <- try wd
+                    case macterr of
+                        Right () -> do
+                            -- pass current session on to the next test
+                            wdsession' <- W.getSession
+                            liftIO $ wdTestClose testsession (Just wdsession', False)
+                        Left acterr@(SomeException actex) ->
+                            case cast actex of
+                                -- pass nothing on to the next test so the session is not closed
+                                Just AbortSession -> liftIO (wdTestClose testsession (Nothing, True)) >> throwIO AbortSession
+                                -- pass the original session on to the next session and rethrow the error
+                                Nothing -> liftIO (wdTestClose testsession (Just wdsession, True)) >> throwIO acterr
+
 
                 _ -> do
                     -- on error, just pass along the session and error
