@@ -5,6 +5,7 @@ module Test.Hspec.WebDriver.Internal (
   , runState
   , with
   , SessionExample(..)
+  , AbortSessionEx(..)
 ) where
 
 import Control.Applicative
@@ -12,6 +13,7 @@ import Control.Concurrent.MVar
 import Control.Monad.Trans.State (state, evalState, execState, execStateT, StateT)
 import Data.Traversable (traverse)
 import Data.Typeable (Typeable, cast)
+import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Hspec
 #if MIN_VERSION_hspec(1,10,0)
@@ -46,6 +48,11 @@ countItems s = flip execState 0 $ traverseSpec go s
     where
         go item = state $ \cnt -> (item, cnt+1)
 
+data AbortSessionEx = AbortSessionEx
+    deriving Typeable
+instance E.Exception AbortSessionEx
+instance Show AbortSessionEx where
+    show AbortSessionEx = "Session Aborted"
 
 data SessionTest a = SessionTest (IO () -> IO ()) (a -> IO a)
     deriving Typeable
@@ -102,11 +109,20 @@ sessionItem sess i item =
 
                         -- A session test, where in addition the open function succeeded.
                         (Right a, Just (SessionTest act f)) -> do
+                            aborted <- newIORef False
                             act $ do
-                                a' <- f a 
-                                        `E.onException` close ma -- use old state on error
-                                close $ Right a' -- use new state
-                            return Success
+                                mstate <- E.try $ f a
+                                case mstate of
+                                    -- pass new state to next test
+                                    Right st -> close (Right st)
+                                    Left serr@(E.SomeException actErr) -> do
+                                        case cast actErr of
+                                            -- pass abort to next test
+                                            Just AbortSessionEx -> close (Left serr) >> writeIORef aborted True
+                                            -- pass original state and rethrow the error
+                                            Nothing -> close ma >> E.throwIO serr
+                            abrt <- readIORef aborted
+                            return $ if abrt then (Fail "Session Aborted") else Success
                             
                         -- A session test where the state ma is an error (which is the error
                         -- thrown by open).  Pass the error ma to the next test and throw the

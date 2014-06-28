@@ -40,6 +40,7 @@ module Test.Hspec.WebDriver(
   , runWD
   , WDExample
   , Using(..)
+  , inspectSession
 
   -- * Expectations
   , shouldBe
@@ -177,6 +178,17 @@ instance Using BrowserDefaults where
 instance Using [BrowserDefaults] where
     type UsingList [BrowserDefaults] = [BrowserDefaults]
     using d s = (d, s)
+
+-- | Abort the session without closing the session.
+--
+-- Normally, 'session' will automatically close the session either when the tests complete without
+-- error or when any of the tests within the session throws an error.  When developing the test
+-- suite, this can be annoying since closing the session causes the browser window to close.
+-- Therefore, while developing the test suite, you can insert a call to 'inspectSession'.  This will
+-- immedietly halt the session (all later tests will fail) but will not close the session so that
+-- the browser window stays open.
+inspectSession :: WD ()
+inspectSession = throwIO I.AbortSessionEx
 
 -- | 'H.shouldBe' lifted into the 'WD' monad.
 shouldBe :: (Show a, Eq a) => a -> a -> WD ()
