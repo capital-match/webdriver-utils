@@ -42,6 +42,11 @@ module Test.Hspec.WebDriver(
   , Using(..)
   , inspectSession
 
+  -- * Multiple sessions at once
+  , multiSession
+  , multiSessionOn
+  , runWDWith
+
   -- * Expectations
   , shouldBe
   , shouldBeTag
@@ -70,7 +75,7 @@ module Test.Hspec.WebDriver(
 ) where
 
 import Control.Exception.Lifted (try, Exception, onException, throwIO, catch)
-import Control.Monad (when)
+import Control.Monad (when, forM_)
 import Control.Monad.IO.Class (liftIO)
 import Data.Default (def)
 import Data.IORef
@@ -141,7 +146,10 @@ instance TestCapabilities BrowserDefaults where
 -- This function uses the default webdriver host (127.0.0.1), port (4444), and
 -- basepath (@\/wd\/hub@).
 session :: TestCapabilities cap => String -> ([cap], Spec) -> Spec
-session = hSessionWd W.defaultSession
+session = hSessionWd create
+    where
+        create :: TestCapabilities cap => cap -> IO (WdState ())
+        create = createSt W.defaultSession
 
 -- | A variation of 'session' which allows you to specify the webdriver host, port, and basepath.
 sessionOn :: TestCapabilities cap
@@ -151,10 +159,40 @@ sessionOn :: TestCapabilities cap
           -> String -- ^ message
           -> ([cap], Spec)
           -> Spec
-sessionOn host port bp = hSessionWd def { W.wdHost = host
-                                        , W.wdPort = port
-                                        , W.wdBasePath = bp
-                                        }
+sessionOn host port bp = hSessionWd create
+    where
+        create :: TestCapabilities cap => cap -> IO (WdState ())
+        create = createSt def { W.wdHost = host
+                              , W.wdPort = port
+                              , W.wdBasePath = bp
+                              }
+
+multiSession :: (TestCapabilities cap, Typeable a, Eq a)
+             => a -- ^ Can be an undefined value of type a, this is used only to determine the type
+             -> String -- ^ the message
+             -> ([cap], Spec) -- ^ the list of capabilites and the spec
+             -> Spec
+multiSession val = hSessionWd $ create val
+    where
+        create :: (Typeable a, Eq a, TestCapabilities cap) => a -> cap -> IO (WdState a)
+        create _ = createSt W.defaultSession
+
+-- | A variation of 'session' which allows you to specify the webdriver host, port, and basepath.
+multiSessionOn :: (TestCapabilities cap, Typeable a, Eq a)
+               => String -- ^ host
+               -> Word16 -- ^ port
+               -> String -- ^ base path
+               -> a -- ^ Can be an undefined value of type a, this is used only to determine the type
+               -> String -- ^ the message
+               -> ([cap], Spec) -- ^ the list of capabilites and the spec
+               -> Spec
+multiSessionOn host port bp val = hSessionWd $ create val
+    where
+        create :: (Typeable a, Eq a, TestCapabilities cap) => a -> cap -> IO (WdState a)
+        create _ = createSt def { W.wdHost = host
+                                , W.wdPort = port
+                                , W.wdBasePath = bp
+                                }
 
 -- | A typeclass of things which can be converted to a list of capabilities.  It's primary purpose
 -- is to allow the word @using@ to be used with 'session' so that the session description reads like
@@ -230,8 +268,10 @@ shouldThrow w expected = do
 --------------------------------------------------------------------------------
 
 -- | State passed between examples
-data WdState = WdState {
-   stSession :: W.WDSession -- ^ the webdriver session
+data WdState a = WdState {
+   stInitialSession :: W.WDSession -- ^ initial session used only for host, port, and basepath
+ , stCaps :: WD W.Capabilities -- ^ the call to newCaps to create the capabilities for this session
+ , stSessions :: [(a,W.WDSession)] -- ^ the webdriver sessions
  , stError :: IORef Bool    -- ^ has an error occured in an earlier example?  We rely on the serialization
                             --   of examples to ensure that at most one thread is reading/writing this
                             --   ioref.
@@ -243,25 +283,26 @@ data PrevHasError = PrevHasError
 instance Exception PrevHasError
 
 -- | The initial session is used only for its host, port, and basepath.  A new session is created.
-createSt :: TestCapabilities cap => W.WDSession -> cap -> IO WdState
-createSt sess cap = do
+createSt :: TestCapabilities cap => W.WDSession -> cap -> IO (WdState a)
+createSt initial cap = do
     err <- newIORef False
-    sess' <- W.runWD sess $ newCaps cap >>= createSession
-    return $ WdState sess' err
+    return $ WdState initial (newCaps cap) [] err 
 
-closeSt :: WdState -> IO ()
-closeSt st = W.runWD (stSession st) closeSession
+closeSt :: WdState a -> IO ()
+closeSt st = 
+    forM_ (stSessions st) $ \(_, sess) ->
+        W.runWD sess closeSession
 
 -- | The 'WDSession' passed in is used for its host, port, and base path.
-hSessionWd :: TestCapabilities cap => W.WDSession -> String -> ([cap], Spec) -> Spec
-hSessionWd sess msg (caps, spec) = spec'
+hSessionWd :: (Typeable a, TestCapabilities cap) => (cap -> IO (WdState a)) -> String -> ([cap], Spec) -> Spec
+hSessionWd create msg (caps, spec) = spec'
     where
         spec' = case caps of
                     [] -> it msg $ pendingWith "No capabilities specified"
                     [c] -> describe (msg ++ " using " ++ show c) $ proc c spec
                     _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ proc c spec) caps
 
-        proc cap = mapSpecItem addCatchResult . I.session (createSt sess cap) closeSt
+        proc cap = mapSpecItem addCatchResult . I.session (create cap) closeSt
 
         addCatchResult item = item {
 #if MIN_VERSION_hspec(1,10,0)
@@ -272,17 +313,28 @@ hSessionWd sess msg (caps, spec) = spec'
                                     `catch` \PrevHasError -> return $ Pending $ Just "previous example had error" }
 
 -- | An example that can be passed to 'it' containing a webdriver action.  It must be created with
--- 'runWD'.
-newtype WDExample = WdExample (I.SessionExample WdState)
+-- 'runWD' or 'runWDWith'.
+newtype WDExample multi = WdExample (I.SessionExample (WdState multi))
     deriving Example
 
 -- | Create an example from a 'WD' action.  This /must/ be nested inside a call to 'session' or
--- 'sessionOn'.
-runWD :: WD () -> WDExample
-runWD w = WdExample $ I.SessionExample $ \s -> W.runWD (stSession s) $ do
-    err <- liftIO $ readIORef $ stError s
+-- 'sessionOn' and can only be used when only a single session is running.
+runWD :: WD () -> WDExample ()
+runWD = runWDWith ()
+
+-- | Create an example from a 'WD' action, parameterized by which session to run.
+-- This /must/ be nested inside a call to 'multiSession' or 'multiSessionOn' and can only be used
+-- when multiple sessions are running.
+runWDWith :: (Eq a, Typeable a) => a -> WD () -> WDExample a
+runWDWith a w = WdExample $ I.SessionExample $ \state -> do
+    err <- readIORef $ stError state
     when err $ throwIO PrevHasError
 
-    w `onException` liftIO (writeIORef (stError s) True)
-    swd <- W.getSession
-    return s { stSession = swd }
+    sess <- case lookup a (stSessions state) of
+                Just s -> return s
+                Nothing -> W.runWD (stInitialSession state) $ stCaps state >>= createSession
+
+    W.runWD sess $ do
+        w `onException` liftIO (writeIORef (stError state) True)
+        swd <- W.getSession
+        return state { stSessions = (a,swd) : (filter ((/=a) . fst) $ stSessions state) }
