@@ -37,6 +37,7 @@ module Test.Hspec.WebDriver(
     BrowserDefaults(..)
   , WdExample(..)
   , runWD
+  , runWDWith
   , pending
   , pendingWith
   , example
@@ -79,6 +80,7 @@ import Control.Exception.Lifted (try, Exception, onException, throwIO)
 import Control.Monad (replicateM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State (state, evalState, execState)
+import Data.Default (Default(..))
 import Data.Typeable (Typeable, cast)
 import Data.IORef
 import Data.Traversable (traverse)
@@ -132,16 +134,20 @@ instance TestCapabilities BrowserDefaults where
     newCaps IPad = return $ W.defaultCaps { W.browser = W.iPad }
     newCaps Android = return $ W.defaultCaps { W.browser = W.android }
 
--- | Internal state for a webdriver test session.
-data WdTestSession = WdTestSession {
-    wdTestOpen :: IO (Maybe W.WDSession, Bool)
-        -- ^ action to obtain the session.  The boolean is True if a previous example has an error.
-        -- Note that if a previous example has an error, the session is still passed along since it
-        -- must be eventually closed.  A nothing for the session is only used if the actual session
-        -- open procedure throws an error.
-  , wdTestClose :: (Maybe W.WDSession, Bool) -> IO ()
-        -- ^ once the test is done with the session, it should pass the new session on to the close
-        -- method.  Again the boolean is True if either a previous or this example has an error.
+-- | The state passed between examples inside the mvars.
+data SessionState multi = SessionState {
+    -- | The already created sessions
+    stSessionMap :: [(multi, W.WDSession)]
+    -- | True if the previous example had an error
+  , stPrevHadError :: Bool
+    -- | Create a new session
+  , stCreateSession :: IO W.WDSession
+}
+
+-- | Internal state for webdriver test sessions.
+data WdTestSession multi = WdTestSession {
+    wdTestOpen :: IO (SessionState multi)
+  , wdTestClose :: SessionState multi -> IO ()
 }
 
 -- | A webdriver example.
@@ -153,56 +159,77 @@ data WdTestSession = WdTestSession {
 -- example.  This is helpful to keep each individual example small and allows the entire spec to be
 -- described at the beginning with pending examples.  
 --
--- The way this works is that you combine examples into a session using 'session', 'sessionWith',
--- 'multiSession', and 'multiSessionWith'.  A webdriver session is then threaded through all
--- examples in a session so that a later example in the session can rely on the webbrowser state as
--- set up by the previous example.  The type system enforces that every webdriver example must be
--- located within a call to 'session' or 'sessionOn'.  Indeed, a 'WdExample' produces a @'SpecWith'
--- 'WdTestSession'@ which can only be converted to 'Spec' using 'session' or 'sessionOn'.  The
--- reason for the 'WdPending' constructor is so that a pending example can be specified with type
--- @'SpecWith' 'WdTestSession'@ so it can compose with the other webdriver examples.
-data WdExample = WdExample (WD ())
-               | WdPending (Maybe String)
+-- The way this works is that you combine examples into a session using 'session' or 'sessionWith'.
+-- A webdriver session is then threaded through all examples in a session so that a later example in
+-- the session can rely on the webbrowser state as set up by the previous example.  The type system
+-- enforces that every webdriver example must be located within a call to 'session' or 'sessionOn'.
+-- Indeed, a 'WdExample' produces a @'SpecWith' ('WdTestSession' multi)@ which can only be converted to
+-- 'Spec' using 'session' or 'sessionWith'.  The reason for the 'WdPending' constructor is so that a
+-- pending example can be specified with type @'SpecWith' ('WdTestSession' multi)@ so it can compose with
+-- the other webdriver examples.
+--
+-- The type @multi@ is used when testing multiple sessions at once (e.g. to test multiple users
+-- interacting via the web page), otherwise it is @()@. Values of this type are used to determine
+-- which browser session the example should be executed against.  A new session is created every
+-- time a new value of type @multi@ is seen.  Note that the type system enforces that every example
+-- within the session has the same type @multi@.  I suggest you create an enumeration type for
+-- @multi@.
+data WdExample multi = WdExample multi (WD ())
+                     | WdPending (Maybe String)
 
--- | A shorthand for constructing a 'WdExample' from a webdriver action.
-runWD :: WD () -> WdExample
-runWD = WdExample
+-- | A shorthand for constructing a 'WdExample' from a webdriver action when you are only testing a
+-- single browser session at once.
+runWD :: WD () -> WdExample ()
+runWD = WdExample ()
+
+-- | Create a webdriver example, specifying which of the multiple sessions the example should be
+-- executed against.
+runWDWith :: multi -> WD () -> WdExample multi
+runWDWith = WdExample
 
 -- | A pending example.
-pending :: WdExample
+pending :: WdExample multi
 pending = WdPending Nothing
 
 -- | A pending example with a message.
-pendingWith :: String -> WdExample
+pendingWith :: String -> WdExample multi
 pendingWith = WdPending . Just
 
 -- | A version of 'H.example' which lifts an @IO ()@ to a webdriver example (so it can be composed
--- with other webdriver examples).
-example :: Expectation -> WdExample
-example = WdExample . liftIO
+-- with other webdriver examples).  In the case of multiple sessions, it doesn't really matter which
+-- session the expectation is executed against, so a default value is used.  In the case of single
+-- sessions, the type is @WdExample ()@.
+example :: Default multi => Expectation -> WdExample multi
+example = WdExample def . liftIO
 
--- | Combine the examples nested inside this call into a webdriver session.  All the examples are
--- run once for each capability in the list. Before the first example is executed, a new webdriver
--- session is automatically created using the capabilities.  The examples are then executed in
--- depth-first order using this webdriver session (so later examples can rely on the browser state
--- created by earlier examples).  Once the final example has executed, the session is automatically
--- closed.  If some example fails (throws an exception), all remaining examples in the session will
--- become pending.
+-- | Combine the examples nested inside this call into a webdriver session or multiple sessions.
+-- All the examples are run once for each capability in the list. Each time a new value of type
+-- @multi@ is seen, a new webdriver session is automatically created using the capabilities.  (In
+-- the simple case of only a single session, @multi@ is @()@ so only one session is created.)  The
+-- examples are then executed in depth-first order using the webdriver sessions (so later examples
+-- can rely on the browser state created by earlier examples).  Once the final example has executed,
+-- the sessions are automatically closed.  If some example fails (throws an exception), all
+-- remaining examples will become pending.
 --
--- Note that when using 'parallel', the examples within a single session will still execute
--- serially.  Different sessions (including the multiple sessions created if more than one
--- capability is passed to 'session') will be executed in parallel.
+-- Note that when using 'parallel', the examples will still execute serially.  Different groups of
+-- examples (including the multiple groups created if more than one capability is passed to
+-- 'session') will be executed in parallel.
 --
 -- This function uses the default webdriver host (127.0.0.1), port (4444), and basepath
 -- (@\/wd\/hub@).
-session :: TestCapabilities cap => String -> ([cap], SpecWith WdTestSession) -> Spec
-session = procTestsWithCaps W.defaultConfig
+session :: TestCapabilities cap => String -> ([cap], SpecWith (WdTestSession multi)) -> Spec
+session = sessionWith W.defaultConfig
 
 -- | A variation of 'session' which allows you to specify the webdriver configuration.  Note that
 -- the capabilities in the 'W.WDConfig' will be ignored, instead the capabilities will come from the
 -- list of 'TestCapabilities'.
-sessionWith :: TestCapabilities cap => W.WDConfig -> String -> ([cap], SpecWith WdTestSession) -> Spec
-sessionWith = procTestsWithCaps
+sessionWith :: TestCapabilities cap => W.WDConfig -> String -> ([cap], SpecWith (WdTestSession multi)) -> Spec
+sessionWith cfg msg (caps, spec) = spec'
+    where
+        spec' = case caps of
+                    [] -> it msg $ H.pendingWith "No capabilities specified"
+                    [c] -> describe (msg ++ " using " ++ show c) $ procTestSession cfg c spec
+                    _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ procTestSession cfg c spec) caps
 
 -- | A typeclass of things which can be converted to a list of capabilities.  It has two uses.
 -- First, it allows you to create a datatype of grouped capabilities in addition to your actual
@@ -219,7 +246,7 @@ sessionWith = procTestsWithCaps
 -- >    ...
 class Using a where
     type UsingList a
-    using :: a -> SpecWith WdTestSession -> (UsingList a, SpecWith WdTestSession)
+    using :: a -> SpecWith (WdTestSession multi) -> (UsingList a, SpecWith (WdTestSession multi))
 
 instance Using BrowserDefaults where
     type UsingList BrowserDefaults = [BrowserDefaults]
@@ -243,7 +270,6 @@ instance Exception AbortSession
 -- the browser window stays open.
 inspectSession :: WD ()
 inspectSession = throwIO AbortSession
-
 
 -- | 'H.shouldBe' lifted into the 'WD' monad.
 shouldBe :: (Show a, Eq a) => a -> a -> WD ()
@@ -279,91 +305,86 @@ shouldThrow w expected = do
         Left err -> err `shouldBe` expected
         Right _ -> liftIO $ assertFailure $ "did not get expected exception " ++ show expected
 
-
 --------------------------------------------------------------------------------
 -- Internal Test Runner
 --------------------------------------------------------------------------------
 
 -- | Create a WdTestSession.
-createTestSession :: TestCapabilities cap
-                  => W.WDConfig -> cap -> [MVar (Maybe W.WDSession,Bool)] -> Int -> WdTestSession
-createTestSession cfg cap mvars n = WdTestSession open close
+createTestSession :: W.WDConfig -> [MVar (SessionState multi)] -> Int -> WdTestSession multi
+createTestSession cfg mvars n = WdTestSession open close
     where
-        open | n == 0 = do c <- newCaps cap
-                           s <- W.mkSession cfg {W.wdCapabilities = c}
-                           s' <- W.runWD s $ createSession c
-                           return (Just s', False)
+        open | n == 0 = return $ SessionState [] False create
              | otherwise = takeMVar (mvars !! n)
 
-        close (sess,err) | length mvars - 1 == n = maybe (return ()) (`W.runWD` closeSession) sess
-                         | otherwise = putMVar (mvars !! (n + 1)) (sess, err)
+        create = do
+            s <- W.mkSession cfg
+            W.runWD s $ createSession $ W.wdCapabilities cfg
+
+        close st | length mvars - 1 == n = mapM_ ((`W.runWD` closeSession) . snd) $ stSessionMap st
+                 | otherwise = putMVar (mvars !! (n + 1)) st
 
 -- | Convert a single test item to a generic item by providing it with the WdTestSession.
-procSpecItem :: TestCapabilities cap
-             => W.WDConfig -> cap -> [MVar (Maybe W.WDSession, Bool)] -> Int -> Item WdTestSession -> Item ()
-procSpecItem cfg mvars caps n item = item { itemExample = \p act progress -> itemExample item p (act . act') progress }
+procSpecItem :: W.WDConfig -> [MVar (SessionState multi)] -> Int -> Item (WdTestSession multi) -> Item ()
+procSpecItem cfg mvars n item = item { itemExample = \p act progress -> itemExample item p (act . act') progress }
     where
-        act' f () = f (createTestSession cfg mvars caps n)
+        act' f () = f (createTestSession cfg mvars n)
 
 -- | Convert a spec tree of test items to a spec tree of generic items by creating a single session for 
 -- the entire tree.
 procTestSession :: TestCapabilities cap
-                => W.WDConfig -> cap -> SpecWith WdTestSession -> Spec
+                => W.WDConfig -> cap -> SpecWith (WdTestSession multi) -> Spec
 procTestSession cfg c s = fromSpecList [build]
     where
         build = BuildSpecs $ do
+            cap <- newCaps c
             trees <- forceSpec s
             let cnt = countItems trees
             mvars <- replicateM cnt newEmptyMVar
-            return $ mapWithCounter (procSpecItem cfg c mvars) trees
+            return $ mapWithCounter (procSpecItem cfg {W.wdCapabilities = cap} mvars) trees
 
--- | Convert a list of capabilites and a spec tree of test items to a generic spec tree by creating
--- one session per capability.
-procTestsWithCaps :: TestCapabilities cap => W.WDConfig -> String -> ([cap], SpecWith WdTestSession) -> Spec
-procTestsWithCaps cfg msg (caps, spec) = spec'
-    where
-        spec' = case caps of
-                    [] -> it msg $ H.pendingWith "No capabilities specified"
-                    [c] -> describe (msg ++ " using " ++ show c) $ procTestSession cfg c spec
-                    _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ procTestSession cfg c spec) caps
-
-
-instance Example WdExample where
-    type Arg WdExample = WdTestSession
+instance Eq multi => Example (WdExample multi) where
+    type Arg (WdExample multi) = WdTestSession multi
     evaluateExample (WdPending msg) _ _ _ = return $ Pending msg
-    evaluateExample (WdExample wd) _ act _ = do
+    evaluateExample (WdExample multi wd) _ act _ = do
         prevHadError <- newIORef False
 
         act $ \testsession -> do
 
-            (msess, err) <- wdTestOpen testsession
-                                    `onException` wdTestClose testsession (Nothing, True)
+            tstate <- wdTestOpen testsession
+
+            msess <- case (lookup multi $ stSessionMap tstate, stPrevHadError tstate) of
+                (_, True) -> return Nothing
+                (Just s, False) -> return $ Just s
+                (Nothing, False) ->
+                    Just <$> stCreateSession tstate
+                        `onException` wdTestClose testsession tstate { stPrevHadError = True }
 
             case msess of
-                (Just wdsession) | not err -> W.runWD wdsession $ do
+                Just wdsession -> W.runWD wdsession $ do
                     -- run the example
                     macterr <- try wd
                     case macterr of
                         Right () -> do
                             -- pass current session on to the next test
                             wdsession' <- W.getSession
-                            liftIO $ wdTestClose testsession (Just wdsession', False)
-                        Left acterr@(SomeException actex) ->
-                            case cast actex of
-                                -- pass nothing on to the next test so the session is not closed
-                                Just AbortSession -> liftIO (wdTestClose testsession (Nothing, True)) >> throwIO AbortSession
-                                -- pass the original session on to the next session and rethrow the error
-                                Nothing -> liftIO (wdTestClose testsession (Just wdsession, True)) >> throwIO acterr
+                            let smap = (multi, wdsession') : filter ((/=multi) . fst) (stSessionMap tstate)
+                            liftIO $ wdTestClose testsession tstate { stSessionMap = smap }
 
+                        Left acterr@(SomeException actex) -> do
+                            let tstate' = case cast actex of
+                                            -- pass empty list on to the next test so the session is not closed
+                                            Just AbortSession -> tstate { stSessionMap = [], stPrevHadError = True }
+                                            Nothing -> tstate { stPrevHadError = True }
+
+                            liftIO $ wdTestClose testsession tstate' >> throwIO acterr
 
                 _ -> do
                     -- on error, just pass along the session and error
                     writeIORef prevHadError True
-                    wdTestClose testsession (msess, err)
+                    wdTestClose testsession tstate
 
         merr <- readIORef prevHadError
         return $ if merr then Pending (Just "Previous example had an error") else Success
-
 
 --------------------------------------------------------------------------------
 --- Utils
