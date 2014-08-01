@@ -40,12 +40,12 @@ module Test.Hspec.WebDriver(
   , runWDWith
   , pending
   , pendingWith
+  , inspectSession
   , example
   , session
   , sessionWith
   , Using(..)
   , WdTestSession
-  , inspectSession
 
   -- * Expectations
   , shouldBe
@@ -162,7 +162,7 @@ data WdTestSession multi = WdTestSession {
 -- The way this works is that you combine examples into a session using 'session' or 'sessionWith'.
 -- A webdriver session is then threaded through all examples in a session so that a later example in
 -- the session can rely on the webbrowser state as set up by the previous example.  The type system
--- enforces that every webdriver example must be located within a call to 'session' or 'sessionOn'.
+-- enforces that every webdriver example must be located within a call to 'session' or 'sessionWith'.
 -- Indeed, a 'WdExample' produces a @'SpecWith' ('WdTestSession' multi)@ which can only be converted to
 -- 'Spec' using 'session' or 'sessionWith'.  The reason for the 'WdPending' constructor is so that a
 -- pending example can be specified with type @'SpecWith' ('WdTestSession' multi)@ so it can compose with
@@ -172,18 +172,39 @@ data WdTestSession multi = WdTestSession {
 -- interacting via the web page), otherwise it is @()@. Values of this type are used to determine
 -- which browser session the example should be executed against.  A new session is created every
 -- time a new value of type @multi@ is seen.  Note that the type system enforces that every example
--- within the session has the same type @multi@.  I suggest you create an enumeration type for
--- @multi@.
+-- within the session has the same type @multi@.
 data WdExample multi = WdExample multi (WD ())
                      | WdPending (Maybe String)
 
 -- | A shorthand for constructing a 'WdExample' from a webdriver action when you are only testing a
--- single browser session at once.
+-- single browser session at once.  See the XKCD example at the top of the page.
 runWD :: WD () -> WdExample ()
 runWD = WdExample ()
 
 -- | Create a webdriver example, specifying which of the multiple sessions the example should be
--- executed against.
+-- executed against.  I suggest you create an enumeration for multi, for example:
+--
+-- >data TestUser = Gandolf | Bilbo | Legolas
+-- >    deriving (Show, Eq, Enum, Bounded)
+-- >
+-- >runUser :: TestUser -> WD () -> WDExample TestUser
+-- >runUser = runWDWith
+-- >
+-- >spec :: Spec
+-- >spec = session "tests some page" $ using Firefox $ do
+-- >    it "does something with Gandolf" $ runUser Gandolf $ do
+-- >        openPage ...
+-- >    it "does something with Bilbo" $ runUser Bilbo $ do
+-- >        openPage ...
+-- >    it "goes back to the Gandolf session" $ runUser Gandolf $ do
+-- >        e <- findElem ....
+-- >        ...
+--
+-- In the above code, two sessions are created and the examples will go back and forth between the
+-- two sessions.  Note that a session for Legolas will only be created the first time he shows up in
+-- a call to @runUser@, which might be never.  To share information between the sessions (e.g. some
+-- data that Gandolf creates that Bilbo should expect), the best way I have found is to use 'runIO'
+-- to create an IORef while constructing the spec.
 runWDWith :: multi -> WD () -> WdExample multi
 runWDWith = WdExample
 
@@ -203,17 +224,17 @@ example :: Default multi => Expectation -> WdExample multi
 example = WdExample def . liftIO
 
 -- | Combine the examples nested inside this call into a webdriver session or multiple sessions.
--- All the examples are run once for each capability in the list. Each time a new value of type
--- @multi@ is seen, a new webdriver session is automatically created using the capabilities.  (In
--- the simple case of only a single session, @multi@ is @()@ so only one session is created.)  The
--- examples are then executed in depth-first order using the webdriver sessions (so later examples
--- can rely on the browser state created by earlier examples).  Once the final example has executed,
--- the sessions are automatically closed.  If some example fails (throws an exception), all
--- remaining examples will become pending.
+-- All the examples are run once for each capability in the list.  Within a single pass through the
+-- examples, each time a new value of type @multi@ is seen, a new webdriver session with the
+-- capabilities is automatically created.  (In the simple case of only a single session, @multi@ is
+-- @()@ so only one session is created.)  The examples are then executed in depth-first order using
+-- the webdriver sessions (so later examples can rely on the browser state created by earlier
+-- examples).  Once the final example has executed, the sessions are automatically closed.  If some
+-- example fails (throws an exception), all remaining examples will become pending.
 --
--- Note that when using 'parallel', the examples will still execute serially.  Different groups of
--- examples (including the multiple groups created if more than one capability is passed to
--- 'session') will be executed in parallel.
+-- All of the above will happen once per capability in the list, with different passes through the
+-- examples being independent.  Note that when using 'parallel', the examples within a single pass
+-- still execute serially.  Different passes through the examples  will be executed in parallel.
 --
 -- This function uses the default webdriver host (127.0.0.1), port (4444), and basepath
 -- (@\/wd\/hub@).
