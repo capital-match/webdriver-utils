@@ -1,3 +1,7 @@
+## 0.3.1
+
+* Convert inspectSession to turn into a pending example instead of throwing an error.
+
 ## 0.3.0
 
 * Add support for testing multiple sessions at once
