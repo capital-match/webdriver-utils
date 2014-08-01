@@ -75,7 +75,7 @@ module Test.Hspec.WebDriver(
   , module Test.WebDriver.Commands
 ) where
 
-import Control.Exception.Lifted (try, Exception, onException, throwIO, catch)
+import Control.Exception.Lifted (try, Exception, onException, throwIO, catches, Handler(..))
 import Control.Monad (when, forM_)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef
@@ -337,7 +337,10 @@ hSessionWd create msg (caps, spec) = spec'
 
         addCatchResult item = item {
             itemExample = \p a prog -> itemExample item p a prog
-                                    `catch` \PrevHasError -> return $ Pending $ Just "previous example had error" }
+                                    `catches` [ Handler $ \PrevHasError -> return $ Pending $ Just "previous example had error" 
+                                              , Handler $ \I.AbortSessionEx -> return $ Pending $ Just "Session Aborted"
+                                              ]
+            }
 
 -- | An example that can be passed to 'it' containing a webdriver action.  It must be created with
 -- 'runWD' or 'runWDWith'.

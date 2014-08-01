@@ -10,6 +10,7 @@ module Test.Hspec.WebDriver.Internal (
 
 import Control.Applicative
 import Control.Concurrent.MVar
+import Control.Monad (replicateM)
 import Control.Monad.Trans.State (state, evalState, execState, execStateT, StateT)
 import Data.Traversable (traverse)
 import Data.Typeable (Typeable, cast)
@@ -43,7 +44,7 @@ traverseTree _ (BuildSpecs _) = error "No BuildSpecs should be left"
 
 -- | Traverse a list of specs, but only if forceSpecs has already been called
 traverseSpec :: Applicative f => (Item -> f Item) -> [SpecTree] -> f [SpecTree]
-traverseSpec f trees = traverse (traverseTree f) trees
+traverseSpec f = traverse (traverseTree f)
 
 
 -- | Process the items in a depth-first walk, passing in the item counter value.
@@ -75,11 +76,7 @@ instance Typeable a => E.Exception (SessionTest a)
 -- to 'session' or the types @s@ do not match, the example will fail.
 data SessionExample s = SessionExample (s -> IO s)
 instance Typeable a => Example (SessionExample a) where
-#if MIN_VERSION_hspec(1,10,0)
     evaluateExample (SessionExample f) _ act _ = E.throwIO $ SessionTest act f
-#else
-    evaluateExample (SessionExample f) _ act = E.throwIO $ SessionTest act f
-#endif
 
 data Session a = Session {
     sessionCount :: Int
@@ -90,11 +87,7 @@ data Session a = Session {
 
 sessionItem :: Typeable a => Session a -> Int -> Item -> Item
 sessionItem sess i item =
-#if MIN_VERSION_hspec(1,10,0)
         item { itemExample = \p a prog -> runTest $ itemExample item p a prog }
-#else
-        item { itemExample = \p a -> runTest $ itemExample item p a }
-#endif
     where
         open | i == 0 = E.try $ sessionCreate sess
              | otherwise = takeMVar $ sessionMVars sess !! i
@@ -109,7 +102,7 @@ sessionItem sess i item =
                 -- normal, non-session test.  Use the original state ma for the next test.
                 Right res -> close ma >> return res
 
-                Left (E.SomeException err) -> do
+                Left (E.SomeException err) ->
                     case (ma, cast err) of
                         -- non-session test threw an error (since the cast to SessionTest
                         -- failed).  Use the original state ma for the next test and rethrow the
@@ -124,14 +117,14 @@ sessionItem sess i item =
                                 case mstate of
                                     -- pass new state to next test
                                     Right st -> close (Right st)
-                                    Left serr@(E.SomeException actErr) -> do
+                                    Left serr@(E.SomeException actErr) ->
                                         case cast actErr of
                                             -- pass abort to next test
                                             Just AbortSessionEx -> close (Left serr) >> writeIORef aborted True
                                             -- pass original state and rethrow the error
                                             Nothing -> close ma >> E.throwIO serr
                             abrt <- readIORef aborted
-                            return $ if abrt then (Fail "Session Aborted") else Success
+                            return $ if abrt then Pending (Just "Session Aborted") else Success
                             
                         -- A session test where the state ma is an error (which is the error
                         -- thrown by open).  Pass the error ma to the next test and throw the
@@ -169,7 +162,7 @@ session create close s = fromSpecList [build]
         build = BuildSpecs $ do
             trees <- forceSpec s
             let cnt = countItems trees
-            mvars <- sequence $ take cnt $ repeat newEmptyMVar
+            mvars <- replicateM cnt newEmptyMVar
             let sess = Session cnt mvars create close
             return (mapWithCounter (sessionItem sess) trees)
 
