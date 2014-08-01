@@ -14,36 +14,45 @@ import Control.Monad.Trans.State (state, evalState, execState, execStateT, State
 import Data.Traversable (traverse)
 import Data.Typeable (Typeable, cast)
 import Data.IORef
-import System.IO.Unsafe (unsafePerformIO)
 import Test.Hspec
-#if MIN_VERSION_hspec(1,10,0)
 import Test.Hspec.Core hiding (describe, it)
-#else
-import Test.Hspec.Core hiding (describe, it, hspec)
-#endif
 
 import qualified Control.Exception as E
 
-#if MIN_VERSION_hspec(1,10,0)
+-- | Force a spec tree to not contain any BuildSpecs
+forceSpecTree :: SpecTree -> IO [SpecTree]
+forceSpecTree s@(SpecItem _ _) = return [s]
+forceSpecTree (SpecGroup msg ss) = do
+    ss' <- concat <$> mapM forceSpecTree ss
+    return [SpecGroup msg ss']
+forceSpecTree (BuildSpecs m) = do
+    trees <- m
+    concat <$> mapM forceSpecTree trees
+
+-- | Force a spec to not contain any BuildSpecs
+forceSpec :: Spec -> IO [SpecTree]
+forceSpec s = do
+    trees <- runSpecM s
+    concat <$> mapM forceSpecTree trees
+
+-- | Traverse a spec, but only if forceSpec has already been called
 traverseTree :: Applicative f => (Item -> f Item) -> SpecTree -> f SpecTree
 traverseTree f (SpecItem msg i) = SpecItem msg <$> f i
 traverseTree f (SpecGroup msg ss) = SpecGroup msg <$> traverse (traverseTree f) ss
-#else
-traverseTree :: Applicative f => (Item -> f Item) -> SpecTree -> f SpecTree
-traverseTree f (SpecItem i) = SpecItem <$> f i
-traverseTree f (SpecGroup msg ss) = SpecGroup msg <$> traverse (traverseTree f) ss
-#endif
+traverseTree _ (BuildSpecs _) = error "No BuildSpecs should be left"
 
-traverseSpec :: Applicative f => (Item -> f Item) -> Spec -> f Spec
-traverseSpec f s = fromSpecList <$> traverse (traverseTree f) (runSpecM s)
+-- | Traverse a list of specs, but only if forceSpecs has already been called
+traverseSpec :: Applicative f => (Item -> f Item) -> [SpecTree] -> f [SpecTree]
+traverseSpec f trees = traverse (traverseTree f) trees
+
 
 -- | Process the items in a depth-first walk, passing in the item counter value.
-mapWithCounter :: (Int -> Item -> Item) -> Spec -> Spec
+mapWithCounter :: (Int -> Item -> Item) -> [SpecTree] -> [SpecTree]
 mapWithCounter f s = flip evalState 0 $ traverseSpec go s
     where
         go item = state $ \cnt -> (f cnt item, cnt+1)
 
-countItems :: Spec -> Int
+countItems :: [SpecTree] -> Int
 countItems s = flip execState 0 $ traverseSpec go s
     where
         go item = state $ \cnt -> (item, cnt+1)
@@ -155,11 +164,14 @@ session :: Typeable s => IO s -- ^ create the state
                       -> (s -> IO ()) -- ^ cleanup the state
                       -> Spec -- ^ spec tree to process
                       -> Spec
-session create close s = unsafePerformIO $ do
-    let cnt = countItems s
-    mvars <- sequence $ take cnt $ repeat newEmptyMVar
-    let sess = Session cnt mvars create close
-    return $ mapWithCounter (sessionItem sess) s
+session create close s = fromSpecList [build]
+    where
+        build = BuildSpecs $ do
+            trees <- forceSpec s
+            let cnt = countItems trees
+            mvars <- sequence $ take cnt $ repeat newEmptyMVar
+            let sess = Session cnt mvars create close
+            return (mapWithCounter (sessionItem sess) trees)
 
 -- | Create an example to pass to 'it' which accesses and modifies the state using the state monad.
 -- For example,

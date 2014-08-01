@@ -31,7 +31,7 @@ import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Exception (throwIO, Exception)
 import Data.Maybe (catMaybes)
 import Data.Typeable (Typeable)
-import Test.WebDriver.Classes
+import Test.WebDriver.Class
 import Test.WebDriver.Commands
 import Test.WebDriver.JSON (fromJSON')
 import Test.WebDriver.Commands.Internal (clientScripts)
