@@ -16,6 +16,7 @@ description:       For end to end testing of web applications from Haskell, the
                    with <http://hspec.github.io hspec>.
 
 extra-source-files: README.md
+                    Changelog.md
 
 source-repository head
     type: mercurial
