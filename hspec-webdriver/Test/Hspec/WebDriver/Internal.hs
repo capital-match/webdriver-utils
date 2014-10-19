@@ -20,32 +20,15 @@ import Test.Hspec.Core hiding (describe, it)
 
 import qualified Control.Exception as E
 
--- | Force a spec tree to not contain any BuildSpecs
-forceSpecTree :: SpecTree -> IO [SpecTree]
-forceSpecTree s@(SpecItem _ _) = return [s]
-forceSpecTree (SpecGroup msg ss) = do
-    ss' <- concat <$> mapM forceSpecTree ss
-    return [SpecGroup msg ss']
-forceSpecTree (BuildSpecs m) = do
-    trees <- m
-    concat <$> mapM forceSpecTree trees
-
--- | Force a spec to not contain any BuildSpecs
-forceSpec :: Spec -> IO [SpecTree]
-forceSpec s = do
-    trees <- runSpecM s
-    concat <$> mapM forceSpecTree trees
-
 -- | Traverse a spec, but only if forceSpec has already been called
 traverseTree :: Applicative f => (Item -> f Item) -> SpecTree -> f SpecTree
-traverseTree f (SpecItem msg i) = SpecItem msg <$> f i
+traverseTree f (SpecItem i) = SpecItem <$> f i
 traverseTree f (SpecGroup msg ss) = SpecGroup msg <$> traverse (traverseTree f) ss
-traverseTree _ (BuildSpecs _) = error "No BuildSpecs should be left"
+traverseTree f (SpecWithCleanup c ss) = SpecWithCleanup c <$> traverse (traverseTree f) ss
 
 -- | Traverse a list of specs, but only if forceSpecs has already been called
 traverseSpec :: Applicative f => (Item -> f Item) -> [SpecTree] -> f [SpecTree]
 traverseSpec f = traverse (traverseTree f)
-
 
 -- | Process the items in a depth-first walk, passing in the item counter value.
 mapWithCounter :: (Int -> Item -> Item) -> [SpecTree] -> [SpecTree]
@@ -157,14 +140,13 @@ session :: Typeable s => IO s -- ^ create the state
                       -> (s -> IO ()) -- ^ cleanup the state
                       -> Spec -- ^ spec tree to process
                       -> Spec
-session create close s = fromSpecList [build]
-    where
-        build = BuildSpecs $ do
-            trees <- forceSpec s
-            let cnt = countItems trees
-            mvars <- replicateM cnt newEmptyMVar
-            let sess = Session cnt mvars create close
-            return (mapWithCounter (sessionItem sess) trees)
+session create close s = do
+    (sess, trees) <- runIO $ do
+        trees <- runSpecM s
+        let cnt = countItems trees
+        mvars <- replicateM cnt newEmptyMVar
+        return (Session cnt mvars create close, trees)
+    fromSpecList (mapWithCounter (sessionItem sess) trees)
 
 -- | Create an example to pass to 'it' which accesses and modifies the state using the state monad.
 -- For example,
