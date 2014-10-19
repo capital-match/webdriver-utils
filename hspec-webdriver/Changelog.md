@@ -1,3 +1,7 @@
+## 0.3.2
+
+* Update to the new hspec 1.12 API
+
 ## 0.3.1
 
 * Convert inspectSession to turn into a pending example instead of throwing an error.
