@@ -405,7 +405,7 @@ instance Eq multi => Example (WdExample multi) where
                             case cast actex of
                                 Just AbortSession -> do
                                     -- pass empty list on to the next test so the session is not closed
-                                    liftIO $ wdTestClose testsession tstate { stSessionMap = [], stPrevHadError = True }
+                                    liftIO $ wdTestClose testsession tstate { stSessionMap = [], stPrevAborted = True }
                                     liftIO $ writeIORef aborted True
                                 Nothing -> do
                                     liftIO $ wdTestClose testsession tstate { stPrevHadError = True }
