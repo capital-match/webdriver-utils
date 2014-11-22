@@ -1,3 +1,8 @@
+## 1.0.0
+
+* Update to hspec2.  All the same features are present but some of the types changed
+  to reflect hspec2 types.
+
 ## 0.3.2
 
 * Update to the new hspec 1.12 API
