@@ -1,3 +1,7 @@
+## 1.0.1
+
+* Increase upper bound on hspec to allow hspec 2.1
+
 ## 1.0.0
 
 * Update to hspec2.  All the same features are present but some of the types changed
