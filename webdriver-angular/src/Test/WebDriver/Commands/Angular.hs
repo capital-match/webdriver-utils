@@ -15,8 +15,8 @@ module Test.WebDriver.Commands.Angular (
     , findNgFrom
     , findNgsFrom
     , NgRepeater(..)
-    , findRepeater
     , findRepeaters
+    , findRepeater
     , findRepeaterFrom
     , findRepeatersFrom
 
@@ -26,10 +26,8 @@ module Test.WebDriver.Commands.Angular (
     , setNgLocation
     ) where
 
-import Control.Applicative ((<$>))
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Exception (throwIO, Exception)
-import Data.Maybe (catMaybes)
 import Data.Typeable (Typeable)
 import Test.WebDriver.Class
 import Test.WebDriver.Commands
@@ -52,15 +50,19 @@ execCS script arg = executeJS arg body
     where
         body = maybe (error $ "Unable to find " ++ T.unpack script) id $ M.lookup script cs
 
--- | Variant of execCS that fails properly on Null
-execElems :: WebDriver wd => T.Text -> [JSArg] -> wd [Element]
+-- | Variant of execCS that parses a list of Elements
+execElems :: (WebDriver wd, A.FromJSON a) => T.Text -> [JSArg] -> wd [a]
 execElems script arg = do
-    x <- execCS script arg
-    case (x, A.fromJSON x) of
-        (A.Null, _) -> return []
-        (A.Array _, A.Success [A.Null]) -> return []
-        _ -> catMaybes <$> fromJSON' x -- parse as [Maybe Element] and drop the nothings because
-                                       -- looking up ByRow returns Nulls in the list.
+    mlst <- execCS script arg
+    case mlst of
+        Nothing -> return []
+        -- the return list can have Null or Array [Null, Null, Null, Null] inside it for some reason
+        -- only objects can be parsed as elements, so filter out the objects
+        Just lst -> mapM fromJSON' $ filter isObject lst
+
+  where
+    isObject (A.Object _) = True
+    isObject _ = False
 
 asyncCS :: (WebDriver wd, A.FromJSON a) => T.Text -> [JSArg] -> wd (Maybe a)
 asyncCS script arg = asyncJS arg body
@@ -130,21 +132,23 @@ findNg' e (ByBinding name) = execElems "findBindings" [JSArg name, e]
 findNg' e (ByModel name) = execElems "findByModel" [JSArg name, e]
 findNg' e (BySelectedOption name) = execElems "findSelectedOptions" [JSArg name, e]
 
--- | Find an element from the document which matches the Angular repeater.  If zero or more than one
--- element are returned, an exception of type 'NgException' is thrown.
+-- | A variant on 'findRepeaters' which throws an exception if the return value from 'findRepeaters'
+-- does not have length exactly one.
 findRepeater :: (MonadIO wd, WebDriver wd) => NgRepeater -> wd Element
 findRepeater r = checkOne r =<< findRepeater' (JSArg A.Null) r
 
--- | Find elements from the document which match the Angular repeater.
+-- | Finds elements from the document which match the 'NgRepeater'.
+--
+-- Note that when using ng-repeat-start and ng-repeat-end and looking up using 'ByRows', all
+-- elements are returned in one big list, not grouped by each instance of ng-repeat-start.
 findRepeaters :: WebDriver wd => NgRepeater -> wd [Element]
 findRepeaters = findRepeater' $ JSArg A.Null
 
--- | Find an element from the given element which matches the Angular repeater.  If zero or more than
--- one are returned, an exception of type 'NgException' is thrown.
+-- | A variant of 'findRepater' which allows searching only the given element.
 findRepeaterFrom :: (MonadIO wd, WebDriver wd) => Element -> NgRepeater -> wd Element
 findRepeaterFrom e r = checkOne r =<< findRepeater' (JSArg e) r
 
--- | Find elements from the given element which match the Angular repeater.
+-- | A variant of 'findRepaters' which allows searching only the given element.
 findRepeatersFrom :: WebDriver wd => Element -> NgRepeater -> wd [Element]
 findRepeatersFrom e = findRepeater' $ JSArg e
 
@@ -176,4 +180,3 @@ setNgLocation sel url = do
     case x of
         A.Null -> return ()
         _ -> liftIO $ throwIO $ NgException $ "Error setting location: " ++ show x
-

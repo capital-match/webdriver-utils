@@ -24,10 +24,18 @@
                     <option value="Bar">Bar</option>
             </select>
             <ul>
-                <li ng-repeat="dog in dogs">
+                <li ng-repeat="dog in dogs1">
                     <span>{{dog.name}}</span>
                     <span>{{dog.breed}}</span>
                 </li>
+            </ul>
+	    <ul>
+		<li ng-repeat-start="dog in dogs2">
+		    <span>{{dog.name}}</span>
+		 </li>
+		 <li ng-repeat-end>
+                    <span>{{dog.breed}}
+                 </li>
             </ul>
             <div id="one">
                 <span id="span-one">{{cost}}</span>

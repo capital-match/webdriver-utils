@@ -5,7 +5,7 @@ import Test.Hspec.WebDriver
 import Test.WebDriver.Commands.Angular
 
 ngSpec :: Spec
-ngSpec = session "Angular webdriver commands" $ using Firefox $ do
+ngSpec = session "Angular webdriver commands" $ using Chrome $ do
     it "opens the page" $ runWD $ do
         openPage "http://localhost:3456/index.html"
         waitForAngular "body" `shouldReturn` True
@@ -58,44 +58,78 @@ ngSpec = session "Angular webdriver commands" $ using Firefox $ do
         t `shouldBeTag` "textarea"
         s `shouldBeTag` "select"
 
-    it "finds all repeater rows" $ runWD $ do
-        [r1, r2, r3] <- findRepeaters $ ByRows "dog in dogs"
-        mapM_ (`shouldBeTag`"li") [r1, r2, r3]
-        r1 `shouldHaveText` "Spot mutt"
-        r2 `shouldHaveText` "Spike poodle"
-        r3 `shouldHaveText` "Jupiter bulldog"
+    describe "ng-repeat" $ do
 
-        findRepeaters (ByRows "cat in cats") `shouldReturn` []
-        findRepeater (ByRows "cat in cats") `shouldThrow` NgException "Selector ByRows \"cat in cats\" returned []"
+        it "finds all repeater rows" $ runWD $ do
+            [r1, r2, r3] <- findRepeaters $ ByRows "dog in dogs1"
+            mapM_ (`shouldBeTag`"li") [r1, r2, r3]
+            r1 `shouldHaveText` "Spot mutt"
+            r2 `shouldHaveText` "Spike poodle"
+            r3 `shouldHaveText` "Jupiter bulldog"
 
-    it "finds a single repeater row" $ runWD $ do
-        r2 <- findRepeater $ ByRow "dog in dogs" 1
-        r2 `shouldBeTag` "li"
-        r2 `shouldHaveText` "Spike poodle"
+            findRepeaters (ByRows "cat in cats") `shouldReturn` []
+            findRepeater (ByRows "cat in cats") `shouldThrow` NgException "Selector ByRows \"cat in cats\" returned []"
 
-        findRepeaters (ByRow "cat in cats" 1) `shouldReturn` []
-        findRepeater (ByRow "cat in cats" 1) `shouldThrow` NgException "Selector ByRow \"cat in cats\" 1 returned []"
+        it "finds a single repeater row" $ runWD $ do
+            r2 <- findRepeater $ ByRow "dog in dogs1" 1
+            r2 `shouldBeTag` "li"
+            r2 `shouldHaveText` "Spike poodle"
 
-    it "finds a repeater column" $ runWD $ do
-        [c1, c2, c3] <- findRepeaters $ ByColumn "dog in dogs" "{{dog.name}}"
-        mapM_ (`shouldBeTag`"span") [c1, c2, c3]
+            findRepeaters (ByRow "cat in cats" 1) `shouldReturn` []
+            findRepeater (ByRow "cat in cats" 1) `shouldThrow` NgException "Selector ByRow \"cat in cats\" 1 returned []"
 
-        c1 `shouldHaveText` "Spot"
-        c2 `shouldHaveText` "Spike"
-        c3 `shouldHaveText` "Jupiter"
+        it "finds a repeater column" $ runWD $ do
+            [c1, c2, c3] <- findRepeaters $ ByColumn "dog in dogs1" "{{dog.name}}"
+            mapM_ (`shouldBeTag`"span") [c1, c2, c3]
 
-        findRepeaters (ByColumn "cat in cats" "{{cat.name}}") `shouldReturn` []
-        findRepeater (ByColumn "cat in cats" "{{cat.name}}") `shouldThrow`
-            NgException "Selector ByColumn \"cat in cats\" \"{{cat.name}}\" returned []"
+            c1 `shouldHaveText` "Spot"
+            c2 `shouldHaveText` "Spike"
+            c3 `shouldHaveText` "Jupiter"
 
-    it "finds a repeater by row and column" $ runWD $ do
-        c2 <- findRepeater $ ByRowAndCol "dog in dogs" 1 "{{dog.breed}}"
-        c2 `shouldBeTag` "span"
-        c2 `shouldHaveText` "poodle"
+            findRepeaters (ByColumn "cat in cats" "{{cat.name}}") `shouldReturn` []
+            findRepeater (ByColumn "cat in cats" "{{cat.name}}") `shouldThrow`
+                NgException "Selector ByColumn \"cat in cats\" \"{{cat.name}}\" returned []"
 
-        findRepeaters (ByRowAndCol "cat in cats" 12 "{{cat.name}}") `shouldReturn` []
-        findRepeater (ByRowAndCol "cat in cats" 22 "{{cat.name}}") `shouldThrow`
-            NgException "Selector ByRowAndCol \"cat in cats\" 22 \"{{cat.name}}\" returned []"
+        it "finds a repeater by row and column" $ runWD $ do
+            c2 <- findRepeater $ ByRowAndCol "dog in dogs1" 1 "{{dog.breed}}"
+            c2 `shouldBeTag` "span"
+            c2 `shouldHaveText` "poodle"
+
+            findRepeaters (ByRowAndCol "cat in cats" 12 "{{cat.name}}") `shouldReturn` []
+            findRepeater (ByRowAndCol "cat in cats" 22 "{{cat.name}}") `shouldThrow`
+                NgException "Selector ByRowAndCol \"cat in cats\" 22 \"{{cat.name}}\" returned []"
+
+    describe "ng-repeat-start and ng-repeat-end" $ do
+
+        it "finds all repeater rows" $ runWD $ do
+            [r1, r1', r2, r2', r3, r3'] <- findRepeaters $ ByRows "dog in dogs2"
+            mapM_ (`shouldBeTag`"li") [r1, r2, r3, r1', r2', r3']
+            r1  `shouldHaveText` "Spot"
+            r1' `shouldHaveText` "mutt"
+            r2  `shouldHaveText` "Spike"
+            r2' `shouldHaveText` "poodle"
+            r3  `shouldHaveText` "Jupiter"
+            r3' `shouldHaveText` "bulldog"
+
+        it "finds a single repeater row" $ runWD $ do
+            r2 <- findRepeaters $ ByRow "dog in dogs2" 1
+            length r2 `shouldBe` 2
+            mapM_ (`shouldBeTag` "li") r2
+            head r2 `shouldHaveText` "Spike"
+            (r2 !! 1) `shouldHaveText` "poodle"
+
+        it "finds a repeater column" $ runWD $ do
+            [c1, c2, c3] <- findRepeaters $ ByColumn "dog in dogs2" "{{dog.name}}"
+            mapM_ (`shouldBeTag`"span") [c1, c2, c3]
+
+            c1 `shouldHaveText` "Spot"
+            c2 `shouldHaveText` "Spike"
+            c3 `shouldHaveText` "Jupiter"
+
+        it "finds a repeater by row and column" $ runWD $ do
+            c2 <- findRepeater $ ByRowAndCol "dog in dogs2" 1 "{{dog.breed}}"
+            c2 `shouldBeTag` "span"
+            c2 `shouldHaveText` "poodle"
 
     it "evaluates an angular expression" $ runWD $ do
         e <- findNg $ ByBinding "{{a}}"
