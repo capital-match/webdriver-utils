@@ -162,7 +162,7 @@ data WdTestSession multi = WdTestSession {
 -- expectations> in this module.  It is possible to split up the spec of a single page into multiple
 -- examples where later examples start with the web browser state from the end of the previous
 -- example.  This is helpful to keep each individual example small and allows the entire spec to be
--- described at the beginning with pending examples.  
+-- described at the beginning with pending examples.
 --
 -- The way this works is that you combine examples into a session using 'session' or 'sessionWith'.
 -- A webdriver session is then threaded through all examples in a session so that a later example in
@@ -357,7 +357,7 @@ procSpecItem cfg mvars n item = item { itemExample = \p act progress -> itemExam
     where
         act' f () = f (createTestSession cfg mvars n)
 
--- | Convert a spec tree of test items to a spec tree of generic items by creating a single session for 
+-- | Convert a spec tree of test items to a spec tree of generic items by creating a single session for
 -- the entire tree.
 procTestSession :: TestCapabilities cap
                 => W.WDConfig -> cap -> SpecWith (WdTestSession multi) -> Spec
@@ -368,7 +368,7 @@ procTestSession cfg c s = do
         let cnt = countItems trees
         mvars <- replicateM cnt newEmptyMVar
         return (mvars, cap, trees)
-    
+
     fromSpecList $ mapWithCounter (procSpecItem cfg {W.wdCapabilities = cap} mvars) trees
 
 instance Eq multi => Example (WdExample multi) where
