@@ -346,7 +346,7 @@ createTestSession cfg mvars n = WdTestSession open close
 
         create = do
             s <- W.mkSession cfg
-            W.runWD s $ createSession $ W.wdCapabilities cfg
+            W.runWD s $ createSession [] $ W.wdCapabilities cfg
 
         close st | length mvars - 1 == n = mapM_ ((`W.runWD` closeSession) . snd) $ stSessionMap st
                  | otherwise = putMVar (mvars !! (n + 1)) st
