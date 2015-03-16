@@ -76,8 +76,8 @@ module Test.Hspec.WebDriver(
   , module Test.WebDriver.Commands
 ) where
 
-import Control.Applicative
-import Control.Concurrent.MVar
+import Control.Applicative ((<$>), Applicative)
+import Control.Concurrent.MVar (MVar, takeMVar, putMVar, newEmptyMVar)
 import Control.Exception (SomeException(..))
 import Control.Exception.Lifted (try, Exception, onException, throwIO)
 import Control.Monad (replicateM)
@@ -85,7 +85,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State (state, evalState, execState)
 import Data.Default (Default(..))
 import Data.Typeable (Typeable, cast)
-import Data.IORef
+import Data.IORef (newIORef, writeIORef, readIORef)
 import Data.Traversable (traverse)
 import Test.HUnit (assertEqual, assertFailure)
 import qualified Data.Text as T
@@ -95,7 +95,7 @@ import Test.Hspec.Core.Spec (Result(..), Item(..), Example(..), SpecTree, Tree(.
 import qualified Test.Hspec as H
 
 import Test.WebDriver (WD)
-import Test.WebDriver.Commands
+import Test.WebDriver.Commands (Element, createSession, closeSession, tagName, getText, attr)
 import qualified Test.WebDriver as W
 import qualified Test.WebDriver.Session as W
 import qualified Test.WebDriver.Config as W
