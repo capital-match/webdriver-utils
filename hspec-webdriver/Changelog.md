@@ -1,3 +1,7 @@
+## 1.0.2
+
+* Fix so that the package builds against webdriver 0.6.1
+
 ## 1.0.1
 
 * Increase upper bound on hspec to allow hspec 2.1
