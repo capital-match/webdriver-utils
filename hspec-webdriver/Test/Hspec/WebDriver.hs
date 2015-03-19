@@ -95,7 +95,7 @@ import Test.Hspec.Core.Spec (Result(..), Item(..), Example(..), SpecTree, Tree(.
 import qualified Test.Hspec as H
 
 import Test.WebDriver (WD)
-import Test.WebDriver.Commands (Element, createSession, closeSession, tagName, getText, attr)
+import Test.WebDriver.Commands
 import qualified Test.WebDriver as W
 import qualified Test.WebDriver.Session as W
 import qualified Test.WebDriver.Config as W
