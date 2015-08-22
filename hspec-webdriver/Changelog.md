@@ -1,3 +1,7 @@
+## 1.0.3
+
+* Allow newer versions of hspec and HUnit
+
 ## 1.0.2
 
 * Fix so that the package builds against webdriver 0.6.1
