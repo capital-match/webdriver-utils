@@ -1,3 +1,9 @@
+## 1.1.0
+
+* Support for webdriver 0.8.  The API in hspec-webdriver itself did not change, but we re-export WebDriver.Commands so I bumped the
+  major version. In fact, there were only a few minor changes in the Commands module (most of the changes in webdriver
+  were to session management which is handled internally), so it is likely that your test suite will compile without changes.
+
 ## 1.0.3
 
 * Allow newer versions of hspec and HUnit

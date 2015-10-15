@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP #-}
 -- | Write hspec tests that are webdriver tests, automatically managing the webdriver sessions.
 --
 -- This module re-exports functions from "Test.Hspec" and "Test.WebDriver.Commands" and it is
@@ -76,7 +76,6 @@ module Test.Hspec.WebDriver(
   , module Test.WebDriver.Commands
 ) where
 
-import Control.Applicative ((<$>), Applicative)
 import Control.Concurrent.MVar (MVar, takeMVar, putMVar, newEmptyMVar)
 import Control.Exception (SomeException(..))
 import Control.Exception.Lifted (try, Exception, onException, throwIO)
@@ -86,9 +85,13 @@ import Control.Monad.Trans.State (state, evalState, execState)
 import Data.Default (Default(..))
 import Data.Typeable (Typeable, cast)
 import Data.IORef (newIORef, writeIORef, readIORef)
-import Data.Traversable (traverse)
 import Test.HUnit (assertEqual, assertFailure)
 import qualified Data.Text as T
+
+#if !MIN_VERSION_base(4,8,0)
+import Control.Applicative ((<$>), Applicative)
+import Data.Traversable (traverse)
+#endif
 
 import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pending, pendingWith, example)
 import Test.Hspec.Core.Spec (Result(..), Item(..), Example(..), SpecTree, Tree(..), fromSpecList, runSpecM)
@@ -346,7 +349,11 @@ createTestSession cfg mvars n = WdTestSession open close
 
         create = do
             s <- W.mkSession cfg
+#if MIN_VERSION_webdriver(0,7,0)
+            W.runWD s $ createSession $ W.wdCapabilities cfg
+#else
             W.runWD s $ createSession [] $ W.wdCapabilities cfg
+#endif
 
         close st | length mvars - 1 == n = mapM_ ((`W.runWD` closeSession) . snd) $ stSessionMap st
                  | otherwise = putMVar (mvars !! (n + 1)) st

@@ -1,5 +1,5 @@
 name:              webdriver-angular
-version:           0.1.7
+version:           0.1.8
 cabal-version:     >= 1.8
 build-type:        Simple
 synopsis:          Webdriver actions to assist with testing a webpage which uses Angular.Js
@@ -40,7 +40,7 @@ library
 
     build-depends: base                 >= 4          && < 5
 
-                 , webdriver            >= 0.6  && < 0.7
+                 , webdriver            >= 0.6  && < 0.9
                  , aeson                >= 0.6
                  , language-javascript  >= 0.5  && < 0.6
                  , template-haskell     >= 0.6
