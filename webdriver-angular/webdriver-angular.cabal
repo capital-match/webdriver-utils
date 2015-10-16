@@ -1,5 +1,5 @@
 name:              webdriver-angular
-version:           0.1.8
+version:           0.1.9
 cabal-version:     >= 1.8
 build-type:        Simple
 synopsis:          Webdriver actions to assist with testing a webpage which uses Angular.Js
@@ -56,7 +56,7 @@ test-suite test
 
     build-depends: base >= 4 && < 5
                  , hspec >= 1.8
-                 , hspec-webdriver >= 0.2 && < 1.1
+                 , hspec-webdriver >= 0.2
                  , transformers
                  , wai-app-static >= 2.0
                  , warp >= 2.0
