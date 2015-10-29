@@ -10,11 +10,17 @@
 -- >
 -- >import Test.Hspec.WebDriver
 -- >
+-- >allBrowsers :: [Capabilities]
+-- >allBrowsers = [firefoxCaps, chromeCaps, ieCaps]
+-- >
+-- >browsersExceptIE :: [Capabilities]
+-- >browsersExceptIE = [firefoxCaps, chromeCaps]
+-- >
 -- >main :: IO ()
 -- >main = hspec $
 -- >    describe "XKCD Tests" $ do
 -- >
--- >        session "for 327" $ using Firefox $ do
+-- >        session "for 327" $ using allBrowsers $ do
 -- >            it "opens the page" $ runWD $
 -- >                openPage "http://www.xkcd.com/327/"
 -- >            it "checks hover text" $ runWD $ do
@@ -22,7 +28,7 @@
 -- >                e `shouldBeTag` "img"
 -- >                e `shouldHaveAttr` ("title", "Her daughter is named Help I'm trapped in a driver's license factory.")
 -- >
--- >        parallel $ session "for 303" $ using [Firefox, Chrome] $ do
+-- >        parallel $ session "for 303" $ using browsersExceptIE $ do
 -- >            it "opens the page" $ runWD $
 -- >                openPage "http://www.xkcd.com/303/"
 -- >            it "checks the title" $ runWD $ do
@@ -34,8 +40,7 @@
 -- @\/wd\/hub@ (this is the default).
 module Test.Hspec.WebDriver(
   -- * Webdriver Example
-    BrowserDefaults(..)
-  , WdExample(..)
+    WdExample(..)
   , runWD
   , runWDWith
   , pending
@@ -46,8 +51,17 @@ module Test.Hspec.WebDriver(
   , session
   , sessionWith
   , inspectSession
-  , Using(..)
+  , using
   , WdTestSession
+
+  -- * Default Capabilities
+  , firefoxCaps
+  , chromeCaps
+  , ieCaps
+  , operaCaps
+  , iphoneCaps
+  , ipadCaps
+  , androidCaps
 
   -- * Expectations
   , shouldBe
@@ -56,9 +70,6 @@ module Test.Hspec.WebDriver(
   , shouldHaveAttr
   , shouldReturn
   , shouldThrow
-
-  -- * Custom Capabilities
-  , TestCapabilities(..)
 
   -- * Re-exports from "Test.Hspec"
   , hspec
@@ -73,6 +84,7 @@ module Test.Hspec.WebDriver(
 
   -- * Re-exports from "Test.WebDriver"
   , WD
+  , Capabilities
   , module Test.WebDriver.Commands
 ) where
 
@@ -97,48 +109,11 @@ import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pe
 import Test.Hspec.Core.Spec (Result(..), Item(..), Example(..), SpecTree, Tree(..), fromSpecList, runSpecM)
 import qualified Test.Hspec as H
 
-import Test.WebDriver (WD)
+import Test.WebDriver (WD, Capabilities)
 import Test.WebDriver.Commands
 import qualified Test.WebDriver as W
 import qualified Test.WebDriver.Session as W
 import qualified Test.WebDriver.Config as W
-
--- | Webdriver expectations consist of a set of browser 'W.Capabilities' to use and the actual test as
--- a 'WD' monad.  The browser capabilities are specified by an enumeration which is an instance of
--- 'TestCapabilities'.  The @BrowserDefaults@ enumeration provides items that represent the default set of
--- capabilities for each browser (see 'W.defaultCaps').
---
--- To obtain more control over the capabilities (e.g. to test multiple versions of IE or to test
--- Firefrox without javascript), you should @import Test.Hspec.WebDriver hiding (BrowserDefaults)@
--- and then create your own enumeration which is an instance of 'TestCapabilities' and 'Using'.
-data BrowserDefaults = Firefox | Chrome | IE | Opera | IPhone | IPad | Android
-    deriving (Eq, Show, Enum, Bounded)
-
--- | Provides information about the browser capabilities used for testing.  If you want more control
--- over capabilities, you should hide 'BrowserDefaults' and then make an enumeration of all the
--- webdriver capabilities you will be testing with.  For example,
---
--- >data TestCaps = Firefox
--- >              | FirefoxWithoutJavascript
--- >              | Chrome
--- >              | IE8
--- >              | IE9
--- >   deriving (Show, Eq, Bounded, Enum)
---
--- @TestCaps@ must then be made an instance of @TestCapabilities@.  Also, instances of @Using@
--- should be created.
-class Show c => TestCapabilities c where
-    -- | The capabilities to pass to 'createSession'.
-    newCaps :: c -> IO W.Capabilities
-
-instance TestCapabilities BrowserDefaults where
-    newCaps Firefox = return $ W.defaultCaps { W.browser = W.firefox }
-    newCaps Chrome = return $ W.defaultCaps { W.browser = W.chrome }
-    newCaps IE = return $ W.defaultCaps { W.browser = W.ie }
-    newCaps Opera = return $ W.defaultCaps { W.browser = W.opera }
-    newCaps IPhone = return $ W.defaultCaps { W.browser = W.iPhone }
-    newCaps IPad = return $ W.defaultCaps { W.browser = W.iPad }
-    newCaps Android = return $ W.defaultCaps { W.browser = W.android }
 
 -- | The state passed between examples inside the mvars.
 data SessionState multi = SessionState {
@@ -198,7 +173,7 @@ runWD = WdExample ()
 -- >runUser = runWDWith
 -- >
 -- >spec :: Spec
--- >spec = session "tests some page" $ using Firefox $ do
+-- >spec = session "tests some page" $ using [firefoxCaps] $ do
 -- >    it "does something with Gandolf" $ runUser Gandolf $ do
 -- >        openPage ...
 -- >    it "does something with Bilbo" $ runUser Bilbo $ do
@@ -211,7 +186,7 @@ runWD = WdExample ()
 -- two sessions.  Note that a session for Legolas will only be created the first time he shows up in
 -- a call to @runUser@, which might be never.  To share information between the sessions (e.g. some
 -- data that Gandolf creates that Bilbo should expect), the best way I have found is to use IORefs
--- created with 'runIO', and then use implicit parameters to pass the IORefs between examples.
+-- created with 'runIO' (wrapped in a utility module and inserted into @runUser@).
 runWDWith :: multi -> WD () -> WdExample multi
 runWDWith = WdExample
 
@@ -248,13 +223,13 @@ example = WdExample def . liftIO
 --
 -- This function uses the default webdriver host (127.0.0.1), port (4444), and basepath
 -- (@\/wd\/hub@).
-session :: TestCapabilities cap => String -> ([cap], SpecWith (WdTestSession multi)) -> Spec
+session :: String -> ([Capabilities], SpecWith (WdTestSession multi)) -> Spec
 session = sessionWith W.defaultConfig
 
 -- | A variation of 'session' which allows you to specify the webdriver configuration.  Note that
 -- the capabilities in the 'W.WDConfig' will be ignored, instead the capabilities will come from the
--- list of 'TestCapabilities'.
-sessionWith :: TestCapabilities cap => W.WDConfig -> String -> ([cap], SpecWith (WdTestSession multi)) -> Spec
+-- list of 'Capabilities' passed to 'sessionWith'.
+sessionWith :: W.WDConfig -> String -> ([Capabilities], SpecWith (WdTestSession multi)) -> Spec
 sessionWith cfg msg (caps, spec) = spec'
     where
         spec' = case caps of
@@ -262,30 +237,41 @@ sessionWith cfg msg (caps, spec) = spec'
                     [c] -> describe (msg ++ " using " ++ show c) $ procTestSession cfg c spec
                     _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ procTestSession cfg c spec) caps
 
--- | A typeclass of things which can be converted to a list of capabilities.  It has two uses.
--- First, it allows you to create a datatype of grouped capabilities in addition to your actual
--- capabilities.  These psudo-caps can be passed to @using@ to convert them to a list of your actual
--- capabilities.  Secondly, it allows the word @using@ to be used with 'session' so that the session
+-- | A synonym for constructing pairs that allows the word @using@ to be used with 'session' so that the session
 -- description reads like a sentance.
 --
--- >session "for the home page" $ using Firefox $ do
+-- >allBrowsers :: [Capabilities]
+-- >allBrowsers = [firefoxCaps, chromeCaps, ieCaps]
+-- >
+-- >browsersExceptIE :: [Capabilities]
+-- >browsersExceptIE = [firefoxCaps, chromeCaps]
+-- >
+-- >mobileBrowsers :: [Capabilities]
+-- >mobileBrowsers = [iphoneCaps, ipadCaps, androidCaps]
+-- >
+-- >myspec :: Spec
+-- >myspec = do
+-- >  session "for the home page" $ using allBrowsers $ do
 -- >    it "loads the page" $ runWD $ do
 -- >        ...
 -- >    it "scrolls the carosel" $ runWD $ do
 -- >        ...
--- >session "for the users page" $ using [Firefox, Chrome] $ do
+-- >  session "for the users page" $ using browsersExceptIE $ do
 -- >    ...
-class Using a where
-    type UsingList a
-    using :: a -> SpecWith (WdTestSession multi) -> (UsingList a, SpecWith (WdTestSession multi))
+using :: [Capabilities] -> SpecWith (WdTestSession multi) -> ([Capabilities], SpecWith (WdTestSession multi))
+using = (,)
 
-instance Using BrowserDefaults where
-    type UsingList BrowserDefaults = [BrowserDefaults]
-    using d s = ([d], s)
-
-instance Using [BrowserDefaults] where
-    type UsingList [BrowserDefaults] = [BrowserDefaults]
-    using d s = (d, s)
+-- | Default capabilities which can be used in the list passed to 'using'.  I suggest creating a
+-- top-level definition such as @allBrowsers@ and @browsersWithoutIE@ such as in the XKCD example at
+-- the top of the page, so that you do not specify the browsers in the individual spec.
+firefoxCaps, chromeCaps, ieCaps, operaCaps, iphoneCaps, ipadCaps, androidCaps :: Capabilities
+firefoxCaps = W.defaultCaps { W.browser = W.firefox }
+chromeCaps = W.defaultCaps { W.browser = W.chrome }
+ieCaps = W.defaultCaps { W.browser = W.ie }
+operaCaps = W.defaultCaps { W.browser = W.opera }
+iphoneCaps = W.defaultCaps { W.browser = W.iPhone }
+ipadCaps = W.defaultCaps { W.browser = W.iPad }
+androidCaps = W.defaultCaps { W.browser = W.android }
 
 data AbortSession = AbortSession
     deriving (Show, Typeable)
@@ -366,15 +352,13 @@ procSpecItem cfg mvars n item = item { itemExample = \p act progress -> itemExam
 
 -- | Convert a spec tree of test items to a spec tree of generic items by creating a single session for
 -- the entire tree.
-procTestSession :: TestCapabilities cap
-                => W.WDConfig -> cap -> SpecWith (WdTestSession multi) -> Spec
-procTestSession cfg c s = do
-    (mvars, cap, trees) <- runIO $ do
-        cap <- newCaps c
+procTestSession :: W.WDConfig -> Capabilities -> SpecWith (WdTestSession multi) -> Spec
+procTestSession cfg cap s = do
+    (mvars, trees) <- runIO $ do
         trees <- runSpecM s
         let cnt = countItems trees
         mvars <- replicateM cnt newEmptyMVar
-        return (mvars, cap, trees)
+        return (mvars, trees)
 
     fromSpecList $ mapWithCounter (procSpecItem cfg {W.wdCapabilities = cap} mvars) trees
 
