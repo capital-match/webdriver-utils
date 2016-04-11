@@ -3,38 +3,37 @@
 module Test.WebDriver.Commands.Internal
    ( clientScripts ) where
 
-import Control.Applicative
 import Data.Maybe (catMaybes)
 import Data.Monoid ((<>))
-import Language.JavaScript.Parser (JSNode(..), Node(..))
+import Language.JavaScript.Parser (JSAST(..), JSExpression(..), JSStatement(..))
 import qualified Data.HashMap.Lazy as M
 import qualified Data.Text as T
 import qualified Language.JavaScript.Parser as JS
 
 
 -- | Parse top level javascript commands
-parseClientTop :: JSNode -> [(T.Text,T.Text)]
-parseClientTop (NN (JSSourceElementsTop es)) = catMaybes $ map parseClientDef es
+parseClientTop :: JSAST -> [(T.Text,T.Text)]
+parseClientTop (JSAstProgram es _) = catMaybes $ map parseClientDef es
 parseClientTop _ = []
 
 -- | Build a function body that can be passed to async.  The body must use
 -- arguments array but the code from clientSideScripts.js uses function arguments.
-buildFunction :: Node -> T.Text
+buildFunction :: JSExpression -> T.Text
 buildFunction func = "return (" <> T.pack func' <> ").apply(null, arguments);"
     where
-        func' = dropWhile (=='\n') $ JS.renderToString $ NN func
+        func' = dropWhile (=='\n') $ JS.renderToString $ JSAstExpression func JS.JSNoAnnot
 
 -- | Parse a call clientSideScripts.somefunction = function() {...}, returning the function name
 -- and the body.
-parseClientDef :: JSNode -> Maybe (T.Text, T.Text)
-parseClientDef (NN (JSExpression
-                        [NN (JSMemberDot
-                            [NT (JSIdentifier "clientSideScripts") _ _]
-                            _ -- literal .
-                            (NT (JSIdentifier name) _ _))
-                        , NN (JSOperator (NT (JSLiteral "=") _ _))
-                        , NN (func@(JSFunctionExpression _ _ _ _ _ _))
-                        ]))
+parseClientDef :: JSStatement -> Maybe (T.Text, T.Text)
+parseClientDef (JSAssignStatement
+                    (JSMemberDot
+                        (JSIdentifier _ "clientSideScripts")
+                        _ -- annotation
+                        (JSIdentifier _ name))
+                    _ -- assign operator
+                    (func@(JSFunctionExpression{}))
+                    _) -- semicolon
     = Just (T.pack name, buildFunction func)
                         -- Use renderToString instead of renderJS so we don't need to depend on builder
 parseClientDef _ = Nothing
