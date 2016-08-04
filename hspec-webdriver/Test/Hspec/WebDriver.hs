@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP #-}
+{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns #-}
 -- | Write hspec tests that are webdriver tests, automatically managing the webdriver sessions.
 --
 -- This module re-exports functions from "Test.Hspec" and "Test.WebDriver.Commands" and it is
@@ -41,8 +41,11 @@
 module Test.Hspec.WebDriver(
   -- * Webdriver Example
     WdExample(..)
+  , WdOptions (..)
   , runWD
+  , runWDOptions
   , runWDWith
+  , runWDWithOptions
   , pending
   , pendingWith
   , example
@@ -95,25 +98,25 @@ import Control.Monad (replicateM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State (state, evalState, execState)
 import Data.Default (Default(..))
-import Data.Typeable (Typeable, cast)
 import Data.IORef (newIORef, writeIORef, readIORef)
-import Test.HUnit (assertEqual, assertFailure)
 import qualified Data.Text as T
+import Data.Typeable (Typeable, cast)
+import Test.HUnit (assertEqual, assertFailure)
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>), Applicative)
 import Data.Traversable (traverse)
 #endif
 
+import qualified Test.Hspec as H
 import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pending, pendingWith, example)
 import Test.Hspec.Core.Spec (Result(..), Item(..), Example(..), SpecTree, Tree(..), fromSpecList, runSpecM)
-import qualified Test.Hspec as H
 
 import Test.WebDriver (WD, Capabilities)
-import Test.WebDriver.Commands
 import qualified Test.WebDriver as W
-import qualified Test.WebDriver.Session as W
+import Test.WebDriver.Commands
 import qualified Test.WebDriver.Config as W
+import qualified Test.WebDriver.Session as W
 
 -- | The state passed between examples inside the mvars.
 data SessionState multi = SessionState {
@@ -156,12 +159,24 @@ data WdTestSession multi = WdTestSession {
 -- session the example should be executed against.  A new session is created every time a new value
 -- of type @multi@ is seen.  Note that the type system enforces that every example within the
 -- session has the same type @multi@.
-data WdExample multi = WdExample multi (WD ()) | WdPending (Maybe String)
+data WdExample multi = WdExample multi WdOptions (WD ()) | WdPending (Maybe String)
+
+data WdOptions = WdOptions {
+  -- Whether to skip the rest of the tests once one fails
+  skipRemainingTestsAfterFailure :: Bool
+  }
+
+instance Default WdOptions where
+  def = WdOptions { skipRemainingTestsAfterFailure = True }
 
 -- | A shorthand for constructing a 'WdExample' from a webdriver action when you are only testing a
 -- single browser session at once.  See the XKCD example at the top of the page.
 runWD :: WD () -> WdExample ()
-runWD = WdExample ()
+runWD = WdExample () def
+
+-- | A version of runWD that accepts some custom options
+runWDOptions :: WdOptions -> WD () -> WdExample ()
+runWDOptions = WdExample ()
 
 -- | Create a webdriver example, specifying which of the multiple sessions the example should be
 -- executed against.  I suggest you create an enumeration for multi, for example:
@@ -188,7 +203,11 @@ runWD = WdExample ()
 -- data that Gandolf creates that Bilbo should expect), the best way I have found is to use IORefs
 -- created with 'runIO' (wrapped in a utility module and inserted into @runUser@).
 runWDWith :: multi -> WD () -> WdExample multi
-runWDWith = WdExample
+runWDWith multi = WdExample multi def
+
+-- | A version of runWDWith that accepts some custom options
+runWDWithOptions :: multi -> WdOptions -> WD () -> WdExample multi
+runWDWithOptions = WdExample
 
 -- | A pending example.
 pending :: WdExample multi
@@ -203,7 +222,7 @@ pendingWith = WdPending . Just
 -- session the expectation is executed against, so a default value is used.  In the case of single
 -- sessions, the type is @WdExample ()@.
 example :: Default multi => Expectation -> WdExample multi
-example = WdExample def . liftIO
+example = WdExample def def . liftIO
 
 -- | Combine the examples nested inside this call into a webdriver session or multiple sessions.
 -- For each of the capabilities in the list, the examples are executed one at a time in depth-first
@@ -365,7 +384,7 @@ procTestSession cfg cap s = do
 instance Eq multi => Example (WdExample multi) where
     type Arg (WdExample multi) = WdTestSession multi
     evaluateExample (WdPending msg) _ _ _ = return $ Pending msg
-    evaluateExample (WdExample multi wd) _ act _ = do
+    evaluateExample (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) _ act _ = do
         prevHadError <- newIORef False
         aborted <- newIORef False
 
@@ -373,11 +392,11 @@ instance Eq multi => Example (WdExample multi) where
 
             tstate <- wdTestOpen testsession
 
-            msess <- case (lookup multi $ stSessionMap tstate, stPrevHadError tstate, stPrevAborted tstate) of
-                (_, True, _) -> return Nothing
-                (_, _, True) -> return Nothing
-                (Just s, False, False) -> return $ Just s
-                (Nothing, False, False) ->
+            msess <- case (lookup multi $ stSessionMap tstate,
+                           (stPrevHadError tstate || stPrevAborted tstate) && skipRemainingTestsAfterFailure) of
+                (_, True) -> return Nothing
+                (Just s, False) -> return $ Just s
+                (Nothing, False) ->
                     Just <$> stCreateSession tstate
                         `onException` wdTestClose testsession tstate { stPrevHadError = True }
 
