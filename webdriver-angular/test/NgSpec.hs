@@ -5,7 +5,7 @@ import Test.Hspec.WebDriver
 import Test.WebDriver.Commands.Angular
 
 ngSpec :: Spec
-ngSpec = session "Angular webdriver commands" $ using Chrome $ do
+ngSpec = session "Angular webdriver commands" $ using [chromeCaps] $ do
     it "opens the page" $ runWD $ do
         openPage "http://localhost:3456/index.html"
         waitForAngular "body" `shouldReturn` True

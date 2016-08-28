@@ -102,6 +102,7 @@ import Data.IORef (newIORef, writeIORef, readIORef)
 import qualified Data.Text as T
 import Data.Typeable (Typeable, cast)
 import Test.HUnit (assertEqual, assertFailure)
+import qualified Data.Aeson as A
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>), Applicative)
@@ -116,6 +117,7 @@ import Test.WebDriver (WD, Capabilities)
 import qualified Test.WebDriver as W
 import Test.WebDriver.Commands
 import qualified Test.WebDriver.Config as W
+import qualified Test.WebDriver.Capabilities as W
 import qualified Test.WebDriver.Session as W
 
 -- | The state passed between examples inside the mvars.
@@ -139,8 +141,8 @@ data WdTestSession multi = WdTestSession {
 -- | A webdriver example.
 --
 -- The webdriver action of type @'WD' ()@ should interact with the webpage using commands from
--- "Test.WebDriver.Commands" (which is re-exported from this module) and then use the <#g:2
--- expectations> in this module.  It is possible to split up the spec of a single page into multiple
+-- "Test.WebDriver.Commands" (which is re-exported from this module) and then use the
+-- <#g:4 expectations> in this module.  It is possible to split up the spec of a single page into multiple
 -- examples where later examples start with the web browser state from the end of the previous
 -- example.  This is helpful to keep each individual example small and allows the entire spec to be
 -- described at the beginning with pending examples.
@@ -161,8 +163,9 @@ data WdTestSession multi = WdTestSession {
 -- session has the same type @multi@.
 data WdExample multi = WdExample multi WdOptions (WD ()) | WdPending (Maybe String)
 
+-- | Optional options that can be passed to 'runWDOptions'.
 data WdOptions = WdOptions {
-  -- Whether to skip the rest of the tests once one fails
+  -- | As soon as an example fails, skip all remaining tests in the session.  Defaults to True.
   skipRemainingTestsAfterFailure :: Bool
   }
 
@@ -201,7 +204,7 @@ runWDOptions = WdExample ()
 -- two sessions.  Note that a session for Legolas will only be created the first time he shows up in
 -- a call to @runUser@, which might be never.  To share information between the sessions (e.g. some
 -- data that Gandolf creates that Bilbo should expect), the best way I have found is to use IORefs
--- created with 'runIO' (wrapped in a utility module and inserted into @runUser@).
+-- created with 'runIO' (wrapped in a utility module).
 runWDWith :: multi -> WD () -> WdExample multi
 runWDWith multi = WdExample multi def
 
@@ -243,18 +246,30 @@ example = WdExample def def . liftIO
 -- This function uses the default webdriver host (127.0.0.1), port (4444), and basepath
 -- (@\/wd\/hub@).
 session :: String -> ([Capabilities], SpecWith (WdTestSession multi)) -> Spec
-session = sessionWith W.defaultConfig
+session msg (caps, spec) = sessionWith W.defaultConfig msg (caps', spec)
+  where
+    caps' = map f caps
+    f c = case A.toJSON (W.browser c) of
+      A.String b -> (c, T.unpack b)
+      _ -> (c, show c) -- this should not be the case, every browser toJSON is a string
 
 -- | A variation of 'session' which allows you to specify the webdriver configuration.  Note that
 -- the capabilities in the 'W.WDConfig' will be ignored, instead the capabilities will come from the
 -- list of 'Capabilities' passed to 'sessionWith'.
-sessionWith :: W.WDConfig -> String -> ([Capabilities], SpecWith (WdTestSession multi)) -> Spec
+--
+-- In addition, each capability is paired with a descriptive string which is passed to hspec to
+-- describe the example.  By default, 'session' uses the browser name as the description.  'sessionWith'
+-- supports a more detailed description so that in the hspec output you can distinguish between
+-- capabilities that share the same browser but differ in the details, for example capabilities with and
+-- without javascript.
+sessionWith :: W.WDConfig -> String -> ([(Capabilities, String)], SpecWith (WdTestSession multi)) -> Spec
 sessionWith cfg msg (caps, spec) = spec'
     where
+        procT c = procTestSession cfg (W.getCaps c) spec
         spec' = case caps of
                     [] -> it msg $ H.pendingWith "No capabilities specified"
-                    [c] -> describe (msg ++ " using " ++ show c) $ procTestSession cfg c spec
-                    _ -> describe msg $ mapM_ (\c -> describe ("using " ++ show c) $ procTestSession cfg c spec) caps
+                    [(c,cDscr)] -> describe (msg ++ " using " ++ cDscr) $ procT c
+                    _ -> describe msg $ mapM_ (\(c,cDscr) -> describe ("using " ++ cDscr) $ procT c) caps
 
 -- | A synonym for constructing pairs that allows the word @using@ to be used with 'session' so that the session
 -- description reads like a sentance.
@@ -277,7 +292,7 @@ sessionWith cfg msg (caps, spec) = spec'
 -- >        ...
 -- >  session "for the users page" $ using browsersExceptIE $ do
 -- >    ...
-using :: [Capabilities] -> SpecWith (WdTestSession multi) -> ([Capabilities], SpecWith (WdTestSession multi))
+using :: [caps] -> SpecWith (WdTestSession multi) -> ([caps], SpecWith (WdTestSession multi))
 using = (,)
 
 -- | Default capabilities which can be used in the list passed to 'using'.  I suggest creating a

@@ -1,3 +1,34 @@
+## 1.2.0
+
+*   The way capabilities are handled was simplified.  In the old API (1.1.0 and below) there was a typeclass TestCapabilities
+    and you had to create an enumeration (or use the default provided by this library) and then there was a Using typeclass that
+    allowed lists or a single capability.  All this complexity and abuse of typeclasses turned out to be unnecessary.  After 
+    using hspec-webdriver in my own projects for several years, the best way to handle capabilities is in a utility module to have
+    a list `allBrowsers :: [Capabilities]` and then each session in the spec just passes `allBrowsers` to `using` (the XKCD exaple
+    in the documentation now uses this approach).  The `allBrowsers` value in the utility module can then be edited and changed to
+    specify which browsers/caps to use for the examples.
+
+    The actual API changes are as follows:
+
+    * TestCapabilities was removed.
+    * BrowserDefaults was removed and instead there are symbols `firefoxCaps`, `chromeCaps`, etc. which you can
+      use instead of BrowserDefaults.  Or you can ignore these and create your own capaiblities directly using
+      utility functions from the `webdriver` package.
+    * The Using typeclass was removed but the `using` helper function still exists as a standalone function.
+      You must now pass list of capabilities to `using` but otherwise the usage is the same.  As mentioned above,
+      I suggest the argument to `using` is a list defined in a utility module similar to the XKCD example.
+      (In my large test code, no call to using needed to be changed).
+    * `session` and `sessionWith` changed to take a list of Capabilities, but when used with `using` the output of `using`
+      is still the input to `session`.  Also, `sessionWith` takes a descriptive string to be used to better describe
+      capabilities.
+
+* In previous versions, as soon as an example had an error the entire session was aborted.  This is still the default,
+  but there are now functions `runWDOptions` and `runWDWithOptions` which take a setting which can cause the session to continue
+  even if the example has an error.  There is an API change in the definition of the `WdExample` data constructor to take the
+  new options, but as long as you were using `runWD` and `runWDWith` and not using `WdExample` directly, there is no change
+  needed to your code.  `runWD` and `runWDWith` still have the same behavior as before; as soon as an error occurs, the entire
+  session is aborted.
+
 ## 1.1.0
 
 * Support for webdriver 0.8.  The API in hspec-webdriver itself did not change, but we re-export WebDriver.Commands so I bumped the

@@ -1,3 +1,4 @@
 resolver: nightly-2016-08-28
 packages:
-- '.'
+- hspec-webdriver
+- webdriver-angular
