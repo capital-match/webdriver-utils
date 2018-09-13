@@ -1,3 +1,8 @@
+## 1.2.1
+
+* Fix build with hspec >= 2.5
+* move to lts-12.9
+
 ## 1.2.0
 
 *   The way capabilities are handled was simplified.  In the old API (1.1.0 and below) there was a typeclass TestCapabilities
